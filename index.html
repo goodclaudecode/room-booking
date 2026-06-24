@@ -724,14 +724,26 @@ async function deleteBk(id,bookerUserId,bookerName) {
 
 async function approveBk(id) {
   showLoading();
-  try { const {error}=await SUPA.from('bookings').update({status:'confirmed'}).eq('id',id); if(error) throw error; closeModal(); toast('予約を承認しました'); await renderSched(); }
+  try {
+    const {error}=await SUPA.from('bookings').update({status:'confirmed'}).eq('id',id);
+    if(error) throw error;
+    closeModal(); toast('予約を承認しました');
+    if(!document.getElementById('schedule-view').classList.contains('hidden')) await renderSched();
+    if(!document.getElementById('admin-settings-view').classList.contains('hidden')) await renderPendingBks();
+  }
   catch(e){ toast('エラー: '+e.message,'error'); } finally{ hideLoading(); }
 }
 
 async function rejectBk(id) {
   if(!confirm('この予約を却下しますか？')) return;
   showLoading();
-  try { const {error}=await SUPA.from('bookings').update({status:'rejected'}).eq('id',id); if(error) throw error; closeModal(); toast('予約を却下しました'); await renderSched(); }
+  try {
+    const {error}=await SUPA.from('bookings').update({status:'rejected'}).eq('id',id);
+    if(error) throw error;
+    closeModal(); toast('予約を却下しました');
+    if(!document.getElementById('schedule-view').classList.contains('hidden')) await renderSched();
+    if(!document.getElementById('admin-settings-view').classList.contains('hidden')) await renderPendingBks();
+  }
   catch(e){ toast('エラー: '+e.message,'error'); } finally{ hideLoading(); }
 }
 
@@ -869,7 +881,13 @@ function renderRoomEditor() {
       <div style="width:36px;height:36px;border-radius:8px;background:${ROOM_COLOR[r]};flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:16px">${r}</div>
       <input type="text" id="rn-${r}" value="${esc(ROOM_NAME[r])}" style="flex:1;padding:8px 10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:14px;font-family:inherit;" placeholder="部屋名" />
       <input type="color" id="rc-${r}" value="${ROOM_COLOR[r]}" style="width:44px;height:36px;border:none;border-radius:8px;cursor:pointer;padding:2px;" title="色を選択" />
-    </div>`).join('');
+    </div>`).join('')+`
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 0;margin-top:4px">
+      <input type="text" id="new-room-id" maxlength="4" placeholder="ID (例: E)" style="width:64px;padding:8px 10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:14px;font-family:inherit;text-transform:uppercase;" />
+      <input type="text" id="new-room-name" placeholder="部屋名 (例: E室)" style="flex:1;padding:8px 10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:14px;font-family:inherit;" />
+      <input type="color" id="new-room-color" value="#6366F1" style="width:44px;height:36px;border:none;border-radius:8px;cursor:pointer;padding:2px;" title="色を選択" />
+      <button class="btn btn-success btn-sm" onclick="addRoom()">＋ 追加</button>
+    </div>`;
 }
 
 async function saveRooms() {
@@ -879,11 +897,28 @@ async function saveRooms() {
       const name=document.getElementById(`rn-${r}`).value.trim();
       const color=document.getElementById(`rc-${r}`).value;
       if(!name) continue;
-      const {error}=await SUPA.from('rooms').update({name,color}).eq('id',r);
+      const {error}=await SUPA.from('rooms').upsert({id:r,name,color,display_order:ROOMS.indexOf(r)});
       if(error) throw error;
       ROOM_NAME[r]=name; ROOM_COLOR[r]=color;
     }
     toast('部屋の設定を保存しました');
+    renderRoomEditor();
+  } catch(e){ toast('エラー: '+e.message,'error'); }
+  finally{ hideLoading(); }
+}
+
+async function addRoom() {
+  const id=document.getElementById('new-room-id').value.trim().toUpperCase();
+  const name=document.getElementById('new-room-name').value.trim();
+  const color=document.getElementById('new-room-color').value;
+  if(!id||!name){ toast('IDと部屋名を入力してください','error'); return; }
+  if(ROOMS.includes(id)){ toast('そのIDはすでに使われています','error'); return; }
+  showLoading();
+  try {
+    const {error}=await SUPA.from('rooms').insert([{id,name,color,display_order:ROOMS.length}]);
+    if(error) throw error;
+    ROOMS.push(id); ROOM_NAME[id]=name; ROOM_COLOR[id]=color;
+    toast(`${name}を追加しました`);
     renderRoomEditor();
   } catch(e){ toast('エラー: '+e.message,'error'); }
   finally{ hideLoading(); }
