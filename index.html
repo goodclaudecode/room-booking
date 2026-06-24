@@ -243,6 +243,7 @@
       <div class="nav-item"        id="nav-my-bookings"    onclick="gotoView('my-bookings')">📋 マイ予約</div>
       <div class="nav-item"        id="nav-notifications"  onclick="gotoView('notifications')">🔔 通知<span class="nav-badge hidden" id="notif-badge">0</span></div>
       <div class="nav-item"        id="nav-my-account"     onclick="gotoView('my-account')">👤 アカウント</div>
+      <div class="nav-item" id="nav-reports" onclick="gotoView('reports')">📝 利用報告</div>
       <div class="nav-item hidden" id="nav-admin-settings" onclick="gotoView('admin-settings')">⚙️ 管理</div>
     </div>
     <div class="nav-right">
@@ -335,6 +336,12 @@
       </div>
     </div>
 
+    <!-- Reports -->
+    <div id="reports-view" class="hidden">
+      <div class="view-header"><h2 class="view-title">📝 利用報告書</h2></div>
+      <div id="reports-container"></div>
+    </div>
+
     <!-- Admin Settings -->
     <div id="admin-settings-view" class="hidden">
       <div class="view-header"><h2 class="view-title">⚙️ システム管理</h2></div>
@@ -407,6 +414,12 @@ let ROOM_NAME  = {A:'A室',B:'B室',C:'C室',D:'D室'};
 const SLOT_PX    = 40;
 const WDAYS      = ['日','月','火','水','木','金','土'];
 let START_H = 0, END_H = 24, APPROVAL_REQUIRED = false;
+const BASE_FEE = 300;
+const HVAC_FEE = {A:200, B:300, C:400, D:0};
+function calcFee(room, useHvac) {
+  const base=BASE_FEE, hvac=useHvac?(HVAC_FEE[room]||0):0;
+  return {base, hvac, total:base+hvac};
+}
 let CU = null;
 let schedBks = [];
 
@@ -524,7 +537,7 @@ function startApp() {
 }
 
 // ── VIEWS ─────────────────────────────────────
-const VIEWS=['calendar','schedule','my-bookings','notifications','my-account','admin-settings'];
+const VIEWS=['calendar','schedule','my-bookings','notifications','my-account','reports','admin-settings'];
 function gotoView(name) {
   VIEWS.forEach(v=>{ document.getElementById(`${v}-view`).classList.add('hidden'); const n=document.getElementById(`nav-${v}`); if(n) n.classList.remove('active'); });
   document.getElementById(`${name}-view`).classList.remove('hidden');
@@ -533,6 +546,7 @@ function gotoView(name) {
   if(name==='my-bookings')    renderMyBk();
   if(name==='my-account')     renderAccount();
   if(name==='notifications')  renderNotifs();
+  if(name==='reports')        renderReports();
   if(name==='admin-settings') renderAdminSettings();
 }
 
@@ -639,26 +653,59 @@ function openNewBk(){ openBkModal(null,schedDate||fmtDate(new Date()),null); }
 function openBkModal(room,dateS,startT) {
   const def_st=startT||fromMin(START_H*60);
   const def_et=fromMin(Math.min(toMin(def_st)+60,END_H*60));
-  document.getElementById('modal-ttl').textContent='新規予約';
-  const roomOpts=ROOMS.map(r=>`<option value="${r}" ${r===(room||'A')?'selected':''}>${ROOM_NAME[r]}</option>`).join('');
+  document.getElementById('modal-ttl').textContent='利用申込書';
+  const roomOpts=ROOMS.map(r=>`<option value="${r}" ${r===(room||ROOMS[0])?'selected':''}>${ROOM_NAME[r]}</option>`).join('');
   document.getElementById('modal-body').innerHTML=`
-    <div class="form-group"><label>部屋</label>
-      <select id="f-room" style="width:100%;padding:10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:15px;font-family:inherit;">${roomOpts}</select>
+    <div style="background:#EFF6FF;border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:#1D4ED8">
+      桂坂小学校 ふれあいサロン 利用申込書
     </div>
-    <div class="form-group"><label>日付</label><input type="date" id="f-date" value="${dateS||fmtDate(new Date())}" /></div>
-    <div class="form-group"><label>時間</label><div class="time-row" id="time-row-wrap"></div></div>
-    <div class="form-group"><label>タイトル</label><input type="text" id="f-title" placeholder="例: 算数の授業" /></div>
+    <div class="form-group"><label>利用団体名 <span style="color:#EF4444">*</span></label><input type="text" id="f-org" placeholder="例: 桂坂子育てサークル" /></div>
+    <div class="form-group"><label>利用責任者氏名 <span style="color:#EF4444">*</span></label><input type="text" id="f-resp" placeholder="例: 田中 太郎" /></div>
+    <div class="form-group"><label>住所</label><input type="text" id="f-addr" placeholder="例: 京都市西京区桂坂..." /></div>
+    <div class="form-group"><label>電話番号</label><input type="tel" id="f-tel" placeholder="例: 075-000-0000" /></div>
+    <div class="form-group"><label>利用場所</label>
+      <select id="f-room" onchange="updateFeeCalc()" style="width:100%;padding:10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:15px;font-family:inherit;">${roomOpts}</select>
+    </div>
+    <div class="form-group"><label>利用目的 <span style="color:#EF4444">*</span></label><input type="text" id="f-purpose" placeholder="例: 子育てサークル活動" /></div>
+    <div class="form-group"><label>参加人数</label><input type="number" id="f-pax" value="1" min="1" style="width:100%;padding:10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:15px;" /></div>
+    <div class="form-group"><label>利用日</label><input type="date" id="f-date" value="${dateS||fmtDate(new Date())}" /></div>
+    <div class="form-group"><label>利用時間</label><div class="time-row" id="time-row-wrap"></div></div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;font-weight:600;color:#374151">
+        <input type="checkbox" id="f-hvac" onchange="updateFeeCalc()" style="width:18px;height:18px;cursor:pointer;">
+        冷暖房を使用する
+      </label>
+    </div>
+    <div style="background:#F9FAFB;border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:8px">利用料金（3時間程度）</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>基本使用料（光熱水費含む）</span><span id="fee-base">300円</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:#6B7280" id="fee-hvac-row"><span>冷暖房費</span><span id="fee-hvac">-</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;border-top:1px solid #E5E7EB;padding-top:8px;margin-top:4px"><span>合計</span><span id="fee-total" style="color:#2563EB">300円</span></div>
+    </div>
+    <div class="form-group"><label>件名（カレンダー表示用）</label><input type="text" id="f-title" placeholder="例: 子育てサークル" /></div>
     <div class="form-group"><label>備考（任意）</label><input type="text" id="f-notes" placeholder="追加情報があれば" /></div>
     ${APPROVAL_REQUIRED?'<div class="msg msg-info" style="margin-bottom:0">承認フローが有効です。管理者の承認後に確定します。</div>':''}
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
-      <button class="btn btn-primary" onclick="saveBk()">予約する</button>
+      <button class="btn btn-primary" onclick="saveBk()">申し込む</button>
     </div>`;
   const tr=document.getElementById('time-row-wrap');
   tr.appendChild(makeTimeSel('f-st',def_st));
   const sep=document.createElement('span'); sep.textContent='〜'; tr.appendChild(sep);
   tr.appendChild(makeTimeSel('f-et',def_et));
   document.getElementById('modal').classList.remove('hidden');
+  updateFeeCalc();
+}
+
+function updateFeeCalc() {
+  const room=document.getElementById('f-room')?.value||ROOMS[0];
+  const useHvac=document.getElementById('f-hvac')?.checked||false;
+  const fee=calcFee(room,useHvac);
+  const hRow=document.getElementById('fee-hvac-row');
+  document.getElementById('fee-base').textContent=fee.base+'円';
+  if(fee.hvac>0){ hRow.style.display='flex'; document.getElementById('fee-hvac').textContent=fee.hvac+'円'; }
+  else { hRow.style.display='none'; }
+  document.getElementById('fee-total').textContent=fee.total+'円';
 }
 
 async function saveBk() {
@@ -666,18 +713,34 @@ async function saveBk() {
   const date=document.getElementById('f-date').value;
   const st=document.getElementById('f-st').value;
   const et=document.getElementById('f-et').value;
-  const title=document.getElementById('f-title').value.trim();
+  const org=document.getElementById('f-org').value.trim();
+  const resp=document.getElementById('f-resp').value.trim();
+  const addr=document.getElementById('f-addr').value.trim();
+  const tel=document.getElementById('f-tel').value.trim();
+  const purpose=document.getElementById('f-purpose').value.trim();
+  const pax=parseInt(document.getElementById('f-pax').value)||1;
+  const useHvac=document.getElementById('f-hvac').checked;
+  const title=document.getElementById('f-title').value.trim()||org||purpose;
   const notes=document.getElementById('f-notes').value.trim();
-  if(!title){ toast('タイトルを入力してください','error'); return; }
+  if(!org){ toast('利用団体名を入力してください','error'); return; }
+  if(!resp){ toast('利用責任者氏名を入力してください','error'); return; }
+  if(!purpose){ toast('利用目的を入力してください','error'); return; }
   if(toMin(st)>=toMin(et)){ toast('終了時間は開始時間より後にしてください','error'); return; }
+  const fee=calcFee(room,useHvac);
   showLoading();
   try {
     const existing=await getBookings({date});
     const conflict=existing.find(b=>b.room_id===room&&b.status!=='rejected'&&toMin(b.start_time)<toMin(et)&&toMin(b.end_time)>toMin(st));
     if(conflict){ hideLoading(); toast(`${ROOM_NAME[room]}は${conflict.start_time}〜${conflict.end_time}に予約があります`,'error'); return; }
-    const {error}=await SUPA.from('bookings').insert([{room_id:room,user_id:CU.id,user_name:CU.name,date,start_time:st,end_time:et,title,notes,status:APPROVAL_REQUIRED?'pending':'confirmed'}]);
+    const {error}=await SUPA.from('bookings').insert([{
+      room_id:room,user_id:CU.id,user_name:CU.name,date,start_time:st,end_time:et,
+      title:title||org,notes,status:APPROVAL_REQUIRED?'pending':'confirmed',
+      organization:org,responsible_person:resp,address:addr,phone:tel,
+      purpose,participants:pax,use_hvac:useHvac,
+      fee_base:fee.base,fee_hvac:fee.hvac,fee_total:fee.total
+    }]);
     if(error) throw error;
-    createNotif('confirmed',{roomId:room,date,st,et,title,notes},{name:CU.name,email:CU.email});
+    createNotif('confirmed',{roomId:room,date,st,et,title:title||org,notes},{name:CU.name,email:CU.email});
     closeModal();
     toast(APPROVAL_REQUIRED?`${ROOM_NAME[room]}を申請しました（承認待ち）`:`${ROOM_NAME[room]}を予約しました！`);
     await renderSched();
@@ -689,21 +752,31 @@ async function saveBk() {
 function openBkDetail(b) {
   const canDel=b.user_id===CU.id||CU.role==='admin';
   const canApprove=CU.role==='admin'&&b.status==='pending';
+  const today=fmtDate(new Date());
+  const isPast=b.date<today;
+  const canReport=b.status==='confirmed'&&(b.user_id===CU.id||CU.role==='admin');
   document.getElementById('modal-ttl').textContent='予約詳細';
   document.getElementById('modal-body').innerHTML=`
     <div class="modal-info-grid">
-      <div><div class="mi-label">部屋</div><div class="mi-val" style="color:${ROOM_COLOR[b.room_id]}">${ROOM_NAME[b.room_id]}</div></div>
-      <div><div class="mi-label">日付</div><div class="mi-val">${fmtDateJP(b.date)}</div></div>
+      <div><div class="mi-label">利用場所</div><div class="mi-val" style="color:${ROOM_COLOR[b.room_id]}">${ROOM_NAME[b.room_id]}</div></div>
+      <div><div class="mi-label">利用日</div><div class="mi-val">${fmtDateJP(b.date)}</div></div>
       <div><div class="mi-label">時間</div><div class="mi-val">${b.start_time}〜${b.end_time}</div></div>
       <div><div class="mi-label">予約者</div><div class="mi-val">${esc(b.user_name)}</div></div>
     </div>
-    <div style="margin-bottom:10px"><div style="font-size:12px;color:#9CA3AF;margin-bottom:4px">タイトル</div><div style="font-size:17px;font-weight:800">${esc(b.title)}</div></div>
-    ${b.notes?`<div style="margin-bottom:10px"><div style="font-size:12px;color:#9CA3AF;margin-bottom:4px">備考</div><div style="font-size:14px;color:#374151">${esc(b.notes)}</div></div>`:''}
-    <div style="margin-bottom:4px"><span class="status-badge ${b.status==='pending'?'status-pending':'status-confirmed'}">${b.status==='pending'?'承認待ち':'確定'}</span></div>
-    <div class="modal-footer">
+    ${b.organization?`<div style="margin-bottom:8px"><div class="mi-label">利用団体名</div><div style="font-size:14px;font-weight:700">${esc(b.organization)}</div></div>`:''}
+    ${b.responsible_person?`<div style="margin-bottom:8px"><div class="mi-label">利用責任者</div><div style="font-size:14px">${esc(b.responsible_person)}</div></div>`:''}
+    ${b.purpose?`<div style="margin-bottom:8px"><div class="mi-label">利用目的</div><div style="font-size:14px">${esc(b.purpose)}</div></div>`:''}
+    ${b.participants?`<div style="margin-bottom:8px"><div class="mi-label">参加人数</div><div style="font-size:14px">${b.participants}名</div></div>`:''}
+    ${b.fee_total?`<div style="background:#F9FAFB;border-radius:8px;padding:10px;margin-bottom:10px"><div class="mi-label" style="margin-bottom:6px">利用料金</div><div style="display:flex;justify-content:space-between;font-size:13px"><span>基本料金</span><span>${b.fee_base||300}円</span></div>${b.use_hvac?`<div style="display:flex;justify-content:space-between;font-size:13px"><span>冷暖房費</span><span>${b.fee_hvac||0}円</span></div>`:''}<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;border-top:1px solid #E5E7EB;margin-top:6px;padding-top:6px"><span>合計</span><span style="color:#2563EB">${b.fee_total}円</span></div></div>`:''}
+    ${b.notes?`<div style="margin-bottom:8px"><div class="mi-label">備考</div><div style="font-size:13px;color:#374151">${esc(b.notes)}</div></div>`:''}
+    <div style="margin-bottom:12px"><span class="status-badge ${b.status==='pending'?'status-pending':'status-confirmed'}">${b.status==='pending'?'承認待ち':'確定'}</span>${b.use_hvac?'<span style="margin-left:8px;font-size:12px;background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:99px">冷暖房使用</span>':''}</div>
+    <div class="modal-footer" style="flex-wrap:wrap">
       <button class="btn btn-secondary" onclick="closeModal()">閉じる</button>
+      <button class="btn btn-secondary btn-sm" onclick="printApplication(${JSON.stringify(b).replace(/"/g,'&quot;')})">🖨 申込書</button>
+      ${b.status==='confirmed'&&CU.role==='admin'?`<button class="btn btn-secondary btn-sm" onclick="printApproval(${JSON.stringify(b).replace(/"/g,'&quot;')})">🖨 承認書</button>`:''}
       ${canApprove?`<button class="btn btn-danger btn-sm" onclick="rejectBk('${b.id}')">却下</button><button class="btn btn-success btn-sm" onclick="approveBk('${b.id}')">承認</button>`:''}
-      ${canDel?`<button class="btn btn-danger" onclick="deleteBk('${b.id}','${b.user_id}','${esc(b.user_name)}')">キャンセル</button>`:''}
+      ${isPast&&canReport?`<button class="btn btn-primary btn-sm" onclick="openReportModal('${b.id}')">📝 利用報告</button><button class="btn btn-secondary btn-sm" onclick="openChecklistModal('${b.id}')">✅ 退室確認</button>`:''}
+      ${canDel?`<button class="btn btn-danger btn-sm" onclick="deleteBk('${b.id}','${b.user_id}','${esc(b.user_name)}')">取消</button>`:''}
     </div>`;
   document.getElementById('modal').classList.remove('hidden');
 }
@@ -1032,6 +1105,230 @@ async function printMyBk() {
     return `<tr style="background:${isPast?'#F9FAFB':'white'}"><td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:${isPast?'#9CA3AF':'#1F2937'}">${fmtDateJP(b.date)}</td><td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;text-align:center"><span style="background:${ROOM_COLOR[b.room_id]};color:white;padding:2px 10px;border-radius:6px;font-weight:700">${b.room_id}</span></td><td style="padding:8px 10px;border-bottom:1px solid #E5E7EB">${b.start_time}〜${b.end_time}</td><td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;font-weight:600">${esc(b.title)}</td>${adminTd}</tr>`; }).join('');
   const w=window.open('','_blank','width=820,height=950');
   w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>予約一覧</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;margin:24px}h1{font-size:20px;margin-bottom:4px}h2{font-size:14px;color:#6B7280;font-weight:400;margin-bottom:20px}table{width:100%;border-collapse:collapse}th{padding:10px 12px;text-align:left;color:white;font-size:13px;background:#374151}@media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}</style></head><body><h1>🏫 予約一覧</h1><h2>${esc(CU.name)} / ${fmtDateJP(today)}（全${mine.length}件）</h2><table><thead><tr><th>日付</th><th style="min-width:60px;text-align:center">部屋</th><th>時間</th><th>タイトル</th>${adminTh}</tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>{setTimeout(()=>{window.print();},200);}<\/script></body></html>`);
+  w.document.close();
+}
+
+// ── PRINT: 申込書 ──────────────────────────────
+function printApplication(b) {
+  const fee=calcFee(b.room_id, b.use_hvac);
+  const w=window.open('','_blank','width=700,height=900');
+  w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>利用申込書</title><style>
+    body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;margin:30px;font-size:13px}
+    h1{font-size:18px;text-align:center;margin-bottom:4px}
+    .sub{text-align:center;font-size:11px;color:#666;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px}
+    td,th{border:1px solid #333;padding:8px 10px;vertical-align:top}
+    .lbl{background:#f5f5f5;width:30%;font-weight:600;font-size:12px}
+    .fee-row{display:flex;justify-content:space-between;padding:4px 0}
+    .total{font-weight:800;border-top:1px solid #333;padding-top:6px;margin-top:4px}
+    @media print{*{-webkit-print-color-adjust:exact!important}}
+  </style></head><body>
+  <h1>桂坂小学校 ふれあいサロン 利用申込書</h1>
+  <div class="sub">管理運営委員会様</div>
+  <table>
+    <tr><td class="lbl">利用団体名</td><td>${esc(b.organization||'')}</td></tr>
+    <tr><td class="lbl">利用責任者</td><td>${esc(b.responsible_person||b.user_name)}</td></tr>
+    <tr><td class="lbl">住所・電話番号</td><td>${esc(b.address||'')}　Tel: ${esc(b.phone||'')}</td></tr>
+    <tr><td class="lbl">利用場所</td><td>${esc(ROOM_NAME[b.room_id])}</td></tr>
+    <tr><td class="lbl">利用目的</td><td>${esc(b.purpose||b.title)}</td></tr>
+    <tr><td class="lbl">参加人数</td><td>${b.participants||''}名</td></tr>
+    <tr><td class="lbl">利用日時</td><td>${fmtDateJP(b.date)}　${b.start_time}〜${b.end_time}</td></tr>
+    <tr><td class="lbl">利用料金</td><td>
+      <div class="fee-row"><span>基本使用料（光熱水費を含む）</span><span>${fee.base}円</span></div>
+      ${b.use_hvac?`<div class="fee-row"><span>冷暖房費（${esc(ROOM_NAME[b.room_id])}）</span><span>${fee.hvac}円</span></div>`:''}
+      <div class="fee-row total"><span>合　計</span><span>${fee.total}円</span></div>
+    </td></tr>
+    ${b.notes?`<tr><td class="lbl">備考</td><td>${esc(b.notes)}</td></tr>`:''}
+  </table>
+  <div style="margin-top:40px;text-align:right">申込日: 　　　年　　月　　日　　　　印</div>
+  <script>window.onload=()=>{setTimeout(()=>window.print(),300);}<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
+// ── PRINT: 承認書兼領収書 ──────────────────────
+function printApproval(b) {
+  const fee=calcFee(b.room_id, b.use_hvac);
+  const today=new Date(); const yr=today.getFullYear()-2018;
+  const w=window.open('','_blank','width=700,height=600');
+  w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>利用承認書兼領収書</title><style>
+    body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;margin:30px;font-size:13px}
+    h1{font-size:18px;text-align:center;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px}
+    td,th{border:1px solid #333;padding:10px 12px;vertical-align:middle}
+    .lbl{background:#f5f5f5;width:32%;font-weight:600;font-size:12px}
+    @media print{*{-webkit-print-color-adjust:exact!important}}
+  </style></head><body>
+  <h1>利用承認書 兼 領収書</h1>
+  <p style="margin-bottom:16px">${esc(b.organization||b.user_name)} 様　　　令和${yr}年　${today.getMonth()+1}月　${today.getDate()}日</p>
+  <table>
+    <tr><td class="lbl">利用場所</td><td>${esc(ROOM_NAME[b.room_id])}　${b.use_hvac?'（冷暖房使用）':''}</td></tr>
+    <tr><td class="lbl">利用金額</td><td style="font-size:18px;font-weight:800">${fee.total}円</td></tr>
+    <tr><td class="lbl">利用日時</td><td>${fmtDateJP(b.date)}　${b.start_time}〜${b.end_time}</td></tr>
+  </table>
+  <div style="text-align:right;margin-top:20px">運営管理委員会　桑原 尚史　印</div>
+  <script>window.onload=()=>{setTimeout(()=>window.print(),300);}<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
+// ── 利用報告書 ────────────────────────────────
+async function openReportModal(bkId) {
+  const bk=schedBks.find(b=>b.id===bkId);
+  if(!bk) return;
+  document.getElementById('modal-ttl').textContent='利用報告書';
+  document.getElementById('modal-body').innerHTML=`
+    <div style="background:#ECFDF5;border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:#047857">
+      利用後に実際の使用状況を報告してください
+    </div>
+    <div class="form-group"><label>利用場所</label><div style="font-weight:700;color:${ROOM_COLOR[bk.room_id]};padding:8px 0">${ROOM_NAME[bk.room_id]}</div></div>
+    <div class="form-group"><label>利用団体名</label><input type="text" id="rp-org" value="${esc(bk.organization||'')}" /></div>
+    <div class="form-group"><label>利用責任者</label><input type="text" id="rp-resp" value="${esc(bk.responsible_person||bk.user_name)}" /></div>
+    <div class="form-group"><label>利用目的</label><input type="text" id="rp-purpose" value="${esc(bk.purpose||bk.title)}" /></div>
+    <div class="form-group"><label>利用日時</label><div style="padding:8px 0;color:#374151">${fmtDateJP(bk.date)}　${bk.start_time}〜${bk.end_time}</div></div>
+    <div class="form-group"><label>実際の利用人数</label><input type="number" id="rp-pax" value="${bk.participants||1}" min="1" style="width:100%;padding:10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:15px;" /></div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;font-weight:600;color:#374151">
+        <input type="checkbox" id="rp-hvac" ${bk.use_hvac?'checked':''} style="width:18px;height:18px;">
+        冷暖房を使用した
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveReport('${bkId}')">報告を提出</button>
+    </div>`;
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+async function saveReport(bkId) {
+  const org=document.getElementById('rp-org').value.trim();
+  const resp=document.getElementById('rp-resp').value.trim();
+  const purpose=document.getElementById('rp-purpose').value.trim();
+  const pax=parseInt(document.getElementById('rp-pax').value)||1;
+  const hvac=document.getElementById('rp-hvac').checked;
+  const report={org,resp,purpose,participants:pax,use_hvac:hvac,submitted_at:new Date().toISOString()};
+  showLoading();
+  try {
+    const {error}=await SUPA.from('bookings').update({report_data:report}).eq('id',bkId);
+    if(error) throw error;
+    closeModal(); toast('利用報告書を提出しました');
+    if(!document.getElementById('reports-view').classList.contains('hidden')) renderReports();
+  } catch(e){ toast('エラー: '+e.message,'error'); }
+  finally{ hideLoading(); }
+}
+
+// ── 退室チェックリスト ─────────────────────────
+function openChecklistModal(bkId) {
+  document.getElementById('modal-ttl').textContent='退室確認チェックリスト';
+  const checklist=[
+    {cat:'① 火の用心',items:['給湯器の確認','ガス台・IHコンロの確認','ガスの元栓の確認']},
+    {cat:'② 清掃',items:['机・床・ホワイトボード等の掃除','現状復帰（元の配置に戻す）','ごみの始末（ごみの持ち帰り）','トイレ・下駄箱（スリッパ）・玄関等']},
+    {cat:'③ 電源管理',items:['電灯・エアコンの電源OFF','マイク・アンプ等・プロジェクターの電源OFF','コンセント接続機器の確認']},
+    {cat:'④ 戸締まり',items:['窓のクレセントとロック（二重ロック）','部屋・廊下・トイレ・扉の施錠（複数での確認）']},
+    {cat:'⑤ 通用門の施錠',items:['他に校舎使用者がいる場合は声かけ','通用門の施錠確認']}
+  ];
+  const saved=JSON.parse(localStorage.getItem('checklist_'+bkId)||'{}');
+  let html='<div style="font-size:12px;color:#6B7280;margin-bottom:12px">確認できたらチェックを入れてください</div>';
+  checklist.forEach((sec,si)=>{
+    html+=`<div style="margin-bottom:14px"><div style="font-weight:700;font-size:13px;color:#374151;margin-bottom:6px">${sec.cat}</div>`;
+    sec.items.forEach((item,ii)=>{
+      const key=`${si}_${ii}`, checked=saved[key]?'checked':'';
+      html+=`<label style="display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;font-size:13px;border-bottom:1px solid #F3F4F6">
+        <input type="checkbox" id="ck_${key}" ${checked} style="width:18px;height:18px;cursor:pointer;accent-color:#059669"> ${item}
+      </label>`;
+    });
+    html+='</div>';
+  });
+  html+=`<div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeModal()">閉じる</button>
+    <button class="btn btn-success" onclick="saveChecklist('${bkId}')">✅ 確認完了・保存</button>
+  </div>`;
+  document.getElementById('modal-body').innerHTML=html;
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+function saveChecklist(bkId) {
+  const checklist={}; let all=true;
+  document.querySelectorAll('[id^="ck_"]').forEach(cb=>{ checklist[cb.id.replace('ck_','')]=cb.checked; if(!cb.checked) all=false; });
+  localStorage.setItem('checklist_'+bkId,JSON.stringify(checklist));
+  if(!all&&!confirm('未チェックの項目があります。このまま保存しますか？')) return;
+  closeModal(); toast('退室確認を保存しました');
+}
+
+// ── 利用報告ビュー ─────────────────────────────
+async function renderReports() {
+  showLoading();
+  try {
+    const f=CU.role==='admin'?{}:{userId:CU.id};
+    const bks=await getBookings(f);
+    const today=fmtDate(new Date());
+    const reported=bks.filter(b=>b.report_data);
+    const pending=bks.filter(b=>b.status==='confirmed'&&b.date<today&&!b.report_data);
+    const el=document.getElementById('reports-container');
+    let html='';
+    if(pending.length){
+      html+=`<div class="section-heading" style="color:#D97706">未提出の利用報告（${pending.length}件）</div><div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">`;
+      html+=pending.map(b=>`<div class="bk-card">
+        <div class="bk-room-badge" style="background:${ROOM_COLOR[b.room_id]}">${b.room_id}</div>
+        <div class="bk-info">
+          <div class="bk-card-title">${esc(b.title)}</div>
+          <div class="bk-card-sub">${fmtDateJP(b.date)}　${b.start_time}〜${b.end_time}</div>
+          <div class="bk-card-sub">${esc(b.organization||b.user_name)}</div>
+        </div>
+        <div class="bk-actions">
+          <button class="btn btn-primary btn-sm" onclick="schedDate='${b.date}';schedBks=[${JSON.stringify(b).replace(/</g,'\\u003c')}];openReportModal('${b.id}')">報告する</button>
+          <button class="btn btn-secondary btn-sm" onclick="schedDate='${b.date}';schedBks=[${JSON.stringify(b).replace(/</g,'\\u003c')}];openChecklistModal('${b.id}')">退室確認</button>
+        </div>
+      </div>`).join('');
+      html+='</div>';
+    }
+    if(reported.length){
+      html+=`<div class="section-heading">提出済みの利用報告（${reported.length}件）</div><div style="display:flex;flex-direction:column;gap:10px">`;
+      html+=reported.map(b=>{
+        const r=b.report_data;
+        return `<div class="bk-card">
+          <div class="bk-room-badge" style="background:${ROOM_COLOR[b.room_id]}">${b.room_id}</div>
+          <div class="bk-info">
+            <div class="bk-card-title">${esc(b.title)} <span style="font-size:11px;background:#ECFDF5;color:#047857;padding:1px 6px;border-radius:99px">提出済</span></div>
+            <div class="bk-card-sub">${fmtDateJP(b.date)}　実績: ${r.participants}名　${r.use_hvac?'冷暖房使用':''}</div>
+            <div class="bk-card-sub">${esc(r.org||b.organization||b.user_name)}</div>
+          </div>
+          <div class="bk-actions">
+            <button class="btn btn-secondary btn-sm" onclick="schedDate='${b.date}';schedBks=[${JSON.stringify(b).replace(/</g,'\\u003c')}];printReportForm('${b.id}')">🖨 印刷</button>
+          </div>
+        </div>`;
+      }).join('');
+      html+='</div>';
+    }
+    if(!pending.length&&!reported.length) html='<div class="empty-state"><div class="empty-icon">📝</div><h3>利用報告はありません</h3><p>利用日が過ぎた予約から報告できます</p></div>';
+    el.innerHTML=html;
+  } finally { hideLoading(); }
+}
+
+function printReportForm(bkId) {
+  const bk=schedBks.find(b=>b.id===bkId); if(!bk||!bk.report_data) return;
+  const r=bk.report_data;
+  const w=window.open('','_blank','width=700,height=700');
+  w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>利用報告書</title><style>
+    body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;margin:30px;font-size:13px}
+    h1{font-size:18px;text-align:center;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px}
+    td{border:1px solid #333;padding:8px 10px}
+    .lbl{background:#f5f5f5;width:30%;font-weight:600}
+    @media print{*{-webkit-print-color-adjust:exact!important}}
+  </style></head><body>
+  <h1>桂坂小学校 ふれあいサロン 利用報告書</h1>
+  <table>
+    <tr><td class="lbl">利用場所</td><td>${esc(ROOM_NAME[bk.room_id])}　冷暖房: ${r.use_hvac?'有':'無'}</td></tr>
+    <tr><td class="lbl">利用団体名</td><td>${esc(r.org||bk.organization||'')}</td></tr>
+    <tr><td class="lbl">利用責任者</td><td>${esc(r.resp||bk.responsible_person||bk.user_name)}</td></tr>
+    <tr><td class="lbl">利用目的</td><td>${esc(r.purpose||bk.purpose||bk.title)}</td></tr>
+    <tr><td class="lbl">利用日時</td><td>${fmtDateJP(bk.date)}　${bk.start_time}〜${bk.end_time}</td></tr>
+    <tr><td class="lbl">利用人数</td><td>${r.participants}名</td></tr>
+  </table>
+  <div style="font-size:11px;color:#666;margin-top:16px">提出日時: ${new Date(r.submitted_at).toLocaleString('ja-JP')}</div>
+  <script>window.onload=()=>{setTimeout(()=>window.print(),300);}<\/script>
+  </body></html>`);
   w.document.close();
 }
 
