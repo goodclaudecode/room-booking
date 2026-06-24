@@ -550,6 +550,7 @@ async function renderCalendar() {
     document.getElementById('stats-grid').innerHTML=ROOMS.map(r=>`
       <div class="stat-card" onclick="openSched('${fmtDate(new Date())}')">
         <div class="stat-room-badge" style="background:${ROOM_COLOR[r]}">${r}</div>
+        <div class="stat-label" style="font-size:11px;color:#374151;font-weight:600;margin-bottom:2px">${esc(ROOM_NAME[r])}</div>
         <div class="stat-label">今月の予約</div>
         <div class="stat-count">${bks.filter(b=>b.room_id===r).length}件</div>
       </div>`).join('');
