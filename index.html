@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>部屋予約システム</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Hiragino Sans','Yu Gothic UI','Meiryo',sans-serif; background:#F3F4F6; color:#1F2937; min-height:100vh; }
+    .hidden { display:none !important; }
+
+    /* LOADING */
+    #loading-overlay { position:fixed; inset:0; background:rgba(255,255,255,0.88); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:999; }
+    .spinner { width:44px; height:44px; border:4px solid #E5E7EB; border-top-color:#2563EB; border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:12px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .loading-text { font-size:14px; color:#6B7280; }
+
+    /* AUTH */
+    .auth-wrap { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px; background:linear-gradient(135deg,#1E40AF 0%,#3B82F6 100%); }
+    .auth-card { background:white; border-radius:16px; padding:40px; width:100%; max-width:420px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+    .auth-logo { text-align:center; margin-bottom:28px; }
+    .auth-logo .icon { font-size:52px; }
+    .auth-logo h1 { font-size:22px; color:#1E40AF; margin-top:8px; font-weight:800; }
+    .auth-logo p { color:#6B7280; font-size:13px; margin-top:4px; }
+    .form-group { margin-bottom:14px; }
+    .form-group label { display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:5px; }
+    .form-group input, .form-group select { width:100%; padding:10px 13px; border:1.5px solid #D1D5DB; border-radius:8px; font-size:15px; transition:border-color 0.2s; background:white; font-family:inherit; }
+    .form-group input:focus, .form-group select:focus { outline:none; border-color:#3B82F6; box-shadow:0 0 0 3px rgba(59,130,246,0.15); }
+    .btn { display:inline-flex; align-items:center; justify-content:center; padding:10px 20px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:all 0.18s; border:none; gap:6px; font-family:inherit; }
+    .btn-primary { background:#2563EB; color:white; }
+    .btn-primary:hover { background:#1D4ED8; transform:translateY(-1px); }
+    .btn-secondary { background:white; color:#374151; border:1.5px solid #D1D5DB; }
+    .btn-secondary:hover { background:#F9FAFB; }
+    .btn-danger { background:#DC2626; color:white; }
+    .btn-danger:hover { background:#B91C1C; }
+    .btn-success { background:#059669; color:white; }
+    .btn-success:hover { background:#047857; }
+    .btn-full { width:100%; }
+    .btn-sm { padding:6px 13px; font-size:13px; }
+    .msg { padding:10px 13px; border-radius:8px; font-size:13px; margin-bottom:12px; }
+    .msg-error   { background:#FEF2F2; color:#B91C1C; border:1px solid #FECACA; }
+    .msg-success { background:#ECFDF5; color:#047857; border:1px solid #A7F3D0; }
+    .msg-info    { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
+    .auth-switch { text-align:center; margin-top:18px; font-size:13px; color:#6B7280; }
+    .auth-switch a { color:#2563EB; text-decoration:none; font-weight:600; }
+
+    /* NAV */
+    nav { background:#1E40AF; color:white; display:flex; align-items:center; height:56px; padding:0 16px; box-shadow:0 2px 8px rgba(0,0,0,0.2); position:sticky; top:0; z-index:50; }
+    .nav-logo { font-size:16px; font-weight:800; margin-right:16px; white-space:nowrap; }
+    .nav-menu { display:flex; gap:2px; flex:1; overflow-x:auto; }
+    .nav-item { padding:6px 11px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:500; color:rgba(255,255,255,0.8); transition:all 0.15s; white-space:nowrap; }
+    .nav-item:hover, .nav-item.active { background:rgba(255,255,255,0.15); color:white; }
+    .nav-badge { display:inline-flex; align-items:center; justify-content:center; min-width:17px; height:17px; border-radius:9px; padding:0 4px; background:#EF4444; color:white; font-size:10px; font-weight:800; margin-left:4px; }
+    .nav-right { display:flex; align-items:center; gap:8px; margin-left:auto; flex-shrink:0; }
+    .nav-username { font-size:12px; color:rgba(255,255,255,0.9); white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis; }
+    .btn-nav-logout { padding:5px 10px; background:rgba(255,255,255,0.1); color:white; border:1px solid rgba(255,255,255,0.3); border-radius:6px; cursor:pointer; font-size:12px; font-family:inherit; transition:background 0.15s; }
+    .btn-nav-logout:hover { background:rgba(255,255,255,0.22); }
+
+    /* MAIN */
+    .main { max-width:1280px; margin:0 auto; padding:20px; }
+    .view-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px; }
+    .view-title { font-size:20px; font-weight:800; color:#1F2937; }
+
+    /* CALENDAR */
+    .cal-nav { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .cal-nav-btn { background:white; border:1.5px solid #D1D5DB; border-radius:8px; padding:6px 11px; cursor:pointer; font-size:16px; line-height:1; transition:all 0.15s; }
+    .cal-nav-btn:hover { background:#F3F4F6; }
+    .cal-month { font-size:17px; font-weight:800; min-width:130px; text-align:center; }
+    .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }
+    .stat-card { background:white; border-radius:12px; padding:14px; box-shadow:0 1px 4px rgba(0,0,0,0.07); text-align:center; cursor:pointer; transition:all 0.18s; }
+    .stat-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,0.12); }
+    .stat-room-badge { width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; color:white; margin:0 auto 6px; }
+    .stat-label { font-size:10px; color:#9CA3AF; margin-bottom:2px; }
+    .stat-count { font-size:20px; font-weight:800; color:#1F2937; }
+    .cal-grid { background:white; border-radius:14px; overflow:hidden; box-shadow:0 1px 6px rgba(0,0,0,0.08); }
+    .cal-weekdays { display:grid; grid-template-columns:repeat(7,1fr); background:#F9FAFB; border-bottom:1px solid #E5E7EB; }
+    .cal-wd { text-align:center; padding:10px 4px; font-size:12px; font-weight:700; color:#6B7280; }
+    .cal-wd.sun { color:#EF4444; } .cal-wd.sat { color:#3B82F6; }
+    .cal-days { display:grid; grid-template-columns:repeat(7,1fr); }
+    .cal-day { min-height:78px; padding:6px; border-right:1px solid #F3F4F6; border-bottom:1px solid #F3F4F6; cursor:pointer; transition:background 0.12s; }
+    .cal-day:hover { background:#EFF6FF; }
+    .cal-day:nth-child(7n) { border-right:none; }
+    .cal-day.other-month { background:#FAFAFA; }
+    .cal-day.other-month .day-num { color:#D1D5DB; }
+    .cal-day.today .day-num { background:#2563EB; color:white; border-radius:50%; }
+    .cal-day.selected { background:#DBEAFE; }
+    .day-num { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#1F2937; margin-bottom:3px; }
+    .day-num.sun { color:#EF4444; } .day-num.sat { color:#3B82F6; }
+    .day-dot { font-size:10px; padding:1px 4px; border-radius:3px; color:white; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    /* SCHEDULE */
+    .sched-topbar { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+    .back-btn { display:flex; align-items:center; gap:6px; padding:6px 12px; background:white; border:1.5px solid #D1D5DB; border-radius:8px; cursor:pointer; font-size:13px; color:#374151; font-family:inherit; transition:all 0.15s; }
+    .back-btn:hover { background:#F3F4F6; }
+    .date-nav { display:flex; align-items:center; gap:8px; flex:1; justify-content:center; }
+    .sched-date-label { font-size:16px; font-weight:800; min-width:200px; text-align:center; }
+    .sched-wrap { background:white; border-radius:14px; overflow:hidden; box-shadow:0 1px 6px rgba(0,0,0,0.08); }
+    .sched-room-headers { display:grid; grid-template-columns:60px repeat(4,1fr); border-bottom:2px solid #E5E7EB; position:sticky; top:56px; z-index:10; background:white; }
+    .sched-time-col-hdr { background:#F9FAFB; border-right:1px solid #E5E7EB; }
+    .sched-room-hdr { text-align:center; padding:12px 8px; font-size:14px; font-weight:800; color:white; }
+    .sched-body { display:grid; grid-template-columns:60px repeat(4,1fr); max-height:calc(100vh - 220px); overflow-y:auto; }
+    .time-axis { background:#F9FAFB; border-right:1px solid #E5E7EB; }
+    .time-lbl { height:40px; display:flex; align-items:flex-start; padding:2px 5px; font-size:10px; color:#9CA3AF; }
+    .time-lbl.hr { color:#6B7280; font-size:11px; font-weight:700; }
+    .room-col { position:relative; border-right:1px solid #E5E7EB; }
+    .room-col:last-child { border-right:none; }
+    .slot-cell { height:40px; border-bottom:1px solid #F3F4F6; cursor:pointer; transition:background 0.1s; }
+    .slot-cell:hover { background:#F0F9FF; }
+    .slot-cell.hr-start { border-bottom-color:#E5E7EB; }
+    .bk-block { position:absolute; left:2px; right:2px; border-radius:6px; padding:4px 6px; overflow:hidden; cursor:pointer; color:white; font-size:11px; font-weight:500; box-shadow:0 1px 4px rgba(0,0,0,0.2); z-index:2; transition:opacity 0.15s; }
+    .bk-block:hover { opacity:0.88; }
+    .bk-block.pending { opacity:0.6; border:2px dashed rgba(255,255,255,0.7); }
+    .bk-title { font-weight:700; font-size:11px; }
+    .bk-time  { font-size:10px; opacity:0.9; margin-top:1px; }
+    .bk-user  { font-size:10px; opacity:0.85; }
+    .bk-status-lbl { font-size:9px; background:rgba(0,0,0,0.2); border-radius:3px; padding:0 4px; display:inline-block; margin-top:2px; }
+
+    /* MY BOOKINGS */
+    .bk-card { background:white; border-radius:12px; padding:14px 16px; box-shadow:0 1px 4px rgba(0,0,0,0.07); display:flex; align-items:center; gap:12px; }
+    .bk-room-badge { width:42px; height:42px; border-radius:10px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; color:white; }
+    .bk-info { flex:1; min-width:0; }
+    .bk-card-title { font-size:14px; font-weight:700; margin-bottom:3px; }
+    .bk-card-sub { font-size:12px; color:#6B7280; }
+    .bk-actions { display:flex; gap:6px; flex-shrink:0; }
+    .status-badge { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; font-weight:600; }
+    .status-confirmed { background:#ECFDF5; color:#047857; }
+    .status-pending   { background:#FEF3C7; color:#92400E; }
+    .section-heading { font-size:14px; font-weight:700; color:#374151; margin-bottom:10px; }
+    .section-heading.muted { color:#9CA3AF; }
+    .empty-state { text-align:center; padding:50px 20px; color:#9CA3AF; }
+    .empty-icon { font-size:44px; margin-bottom:10px; }
+    .empty-state h3 { font-size:16px; color:#374151; margin-bottom:6px; }
+
+    /* ACCOUNT / ADMIN */
+    .account-card { background:white; border-radius:14px; padding:22px; box-shadow:0 1px 4px rgba(0,0,0,0.07); max-width:520px; margin-bottom:16px; }
+    .account-card h3 { font-size:15px; font-weight:800; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #E5E7EB; }
+    .role-badge { display:inline-block; padding:2px 10px; border-radius:99px; font-size:12px; font-weight:600; }
+    .role-admin { background:#FEF3C7; color:#92400E; }
+    .role-user  { background:#EFF6FF; color:#1D4ED8; }
+    .toggle-row { display:flex; align-items:center; justify-content:space-between; padding:12px 0; border-bottom:1px solid #F3F4F6; }
+    .toggle-row label.lbl { font-size:14px; font-weight:600; color:#374151; }
+    .toggle-row small { display:block; font-size:11px; color:#9CA3AF; font-weight:400; margin-top:2px; }
+    .toggle { position:relative; width:46px; height:25px; cursor:pointer; }
+    .toggle input { opacity:0; width:0; height:0; }
+    .toggle-slider { position:absolute; inset:0; background:#D1D5DB; border-radius:25px; transition:0.3s; }
+    .toggle-slider:before { content:''; position:absolute; width:19px; height:19px; left:3px; top:3px; background:white; border-radius:50%; transition:0.3s; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+    .toggle input:checked + .toggle-slider { background:#2563EB; }
+    .toggle input:checked + .toggle-slider:before { transform:translateX(21px); }
+    .hour-row { display:flex; align-items:center; gap:10px; }
+    .hour-row select { flex:1; padding:8px 10px; border:1.5px solid #D1D5DB; border-radius:8px; font-size:14px; font-family:inherit; }
+    .user-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid #F3F4F6; }
+    .user-row:last-child { border-bottom:none; }
+    .user-row-info { flex:1; }
+    .user-row-name  { font-size:14px; font-weight:600; }
+    .user-row-email { font-size:11px; color:#6B7280; }
+
+    /* NOTIFICATIONS */
+    .notif-list { display:flex; flex-direction:column; gap:10px; }
+    .notif-card { background:white; border-radius:12px; padding:14px 16px; box-shadow:0 1px 4px rgba(0,0,0,0.07); display:flex; align-items:flex-start; gap:12px; border-left:4px solid #E5E7EB; }
+    .notif-card.unread { border-left-color:#3B82F6; background:#EFF6FF; }
+    .notif-icon { font-size:20px; flex-shrink:0; }
+    .notif-info { flex:1; min-width:0; }
+    .notif-subj { font-size:13px; font-weight:700; color:#1F2937; margin-bottom:3px; }
+    .notif-meta { font-size:11px; color:#6B7280; margin-bottom:2px; }
+    .notif-time { font-size:10px; color:#9CA3AF; margin-top:3px; }
+    .notif-acts { display:flex; flex-direction:column; gap:5px; flex-shrink:0; align-items:flex-end; }
+    .notif-acts a.btn { text-decoration:none; }
+
+    /* MODAL */
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:200; padding:16px; }
+    .modal-card { background:white; border-radius:16px; padding:24px; width:100%; max-width:500px; box-shadow:0 24px 64px rgba(0,0,0,0.3); animation:popIn 0.2s ease; max-height:90vh; overflow-y:auto; }
+    @keyframes popIn { from { transform:scale(0.93); opacity:0; } to { transform:scale(1); opacity:1; } }
+    .modal-hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+    .modal-hdr h3 { font-size:18px; font-weight:800; }
+    .modal-close { background:none; border:none; font-size:20px; cursor:pointer; color:#9CA3AF; padding:4px 8px; border-radius:6px; line-height:1; transition:all 0.15s; }
+    .modal-close:hover { background:#F3F4F6; color:#374151; }
+    .modal-info-grid { background:#F9FAFB; border-radius:10px; padding:12px; display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+    .mi-label { font-size:11px; color:#9CA3AF; margin-bottom:2px; }
+    .mi-val   { font-size:13px; font-weight:700; color:#1F2937; }
+    .time-row { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px; }
+    .time-row span { text-align:center; color:#6B7280; font-weight:700; }
+    .modal-footer { display:flex; gap:8px; justify-content:flex-end; margin-top:20px; flex-wrap:wrap; }
+
+    /* TOAST */
+    #toasts { position:fixed; bottom:20px; right:20px; z-index:300; display:flex; flex-direction:column; gap:8px; }
+    .toast { padding:11px 18px; border-radius:10px; color:white; font-size:13px; font-weight:500; max-width:300px; box-shadow:0 4px 16px rgba(0,0,0,0.2); animation:toastIn 0.3s ease; }
+    @keyframes toastIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+    .toast-success { background:#059669; }
+    .toast-error   { background:#DC2626; }
+    .toast-info    { background:#2563EB; }
+
+    /* RESPONSIVE */
+    @media (max-width:640px) {
+      .stats-grid { grid-template-columns:repeat(2,1fr); }
+      .main { padding:12px; }
+      .sched-date-label { font-size:13px; min-width:auto; }
+      .cal-day { min-height:60px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text">読み込み中...</div>
+</div>
+<div id="toasts"></div>
+
+<!-- AUTH -->
+<div id="auth-section" class="hidden">
+  <div class="auth-wrap" id="login-wrap">
+    <div class="auth-card">
+      <div class="auth-logo"><div class="icon">🏫</div><h1>部屋予約システム</h1><p>A・B・C・D室の予約管理</p></div>
+      <div id="login-err" class="msg msg-error hidden"></div>
+      <div class="form-group"><label>メールアドレス</label><input type="email" id="login-email" placeholder="例: tanaka@xxx.jp" /></div>
+      <div class="form-group"><label>パスワード</label><input type="password" id="login-pw" placeholder="パスワードを入力" /></div>
+      <button class="btn btn-primary btn-full" onclick="doLogin()">ログイン</button>
+      <div class="auth-switch">アカウントをお持ちでない方は <a href="#" onclick="switchToRegister(event)">新規登録</a></div>
+    </div>
+  </div>
+  <div class="auth-wrap hidden" id="register-wrap">
+    <div class="auth-card">
+      <div class="auth-logo"><div class="icon">🏫</div><h1>新規アカウント登録</h1><p>情報を入力してください</p></div>
+      <div id="reg-err" class="msg msg-error hidden"></div>
+      <div class="form-group"><label>お名前</label><input type="text" id="reg-name" placeholder="例: 田中 太郎" /></div>
+      <div class="form-group"><label>メールアドレス</label><input type="email" id="reg-email" placeholder="例: tanaka@xxx.jp" /></div>
+      <div class="form-group"><label>パスワード（8文字以上）</label><input type="password" id="reg-pw" /></div>
+      <div class="form-group"><label>パスワード（確認）</label><input type="password" id="reg-pw2" /></div>
+      <div class="form-group"><label>携帯電話番号（任意）</label><input type="tel" id="reg-phone" placeholder="例: 09012345678" /></div>
+      <button class="btn btn-primary btn-full" onclick="doRegister()">登録する</button>
+      <div class="auth-switch">すでにアカウントをお持ちの方は <a href="#" onclick="switchToLogin(event)">ログイン</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app-section" class="hidden">
+  <nav>
+    <div class="nav-logo">🏫 部屋予約</div>
+    <div class="nav-menu">
+      <div class="nav-item active" id="nav-calendar"       onclick="gotoView('calendar')">📅 カレンダー</div>
+      <div class="nav-item"        id="nav-my-bookings"    onclick="gotoView('my-bookings')">📋 マイ予約</div>
+      <div class="nav-item"        id="nav-notifications"  onclick="gotoView('notifications')">🔔 通知<span class="nav-badge hidden" id="notif-badge">0</span></div>
+      <div class="nav-item"        id="nav-my-account"     onclick="gotoView('my-account')">👤 アカウント</div>
+      <div class="nav-item hidden" id="nav-admin-settings" onclick="gotoView('admin-settings')">⚙️ 管理</div>
+    </div>
+    <div class="nav-right">
+      <span class="nav-username" id="nav-uname"></span>
+      <button class="btn-nav-logout" onclick="doLogout()">ログアウト</button>
+    </div>
+  </nav>
+
+  <div class="main">
+
+    <!-- Calendar -->
+    <div id="calendar-view">
+      <div class="view-header">
+        <h2 class="view-title">カレンダー</h2>
+        <div class="cal-nav">
+          <button class="cal-nav-btn" onclick="moveMonth(-1)">‹</button>
+          <span class="cal-month" id="cal-month-lbl"></span>
+          <button class="cal-nav-btn" onclick="moveMonth(1)">›</button>
+          <button class="btn btn-secondary btn-sm" onclick="goToday()">今日</button>
+        </div>
+      </div>
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="cal-grid">
+        <div class="cal-weekdays">
+          <div class="cal-wd sun">日</div><div class="cal-wd">月</div><div class="cal-wd">火</div>
+          <div class="cal-wd">水</div><div class="cal-wd">木</div><div class="cal-wd">金</div><div class="cal-wd sat">土</div>
+        </div>
+        <div class="cal-days" id="cal-days"></div>
+      </div>
+    </div>
+
+    <!-- Schedule -->
+    <div id="schedule-view" class="hidden">
+      <div class="sched-topbar">
+        <button class="back-btn" onclick="gotoView('calendar')">← カレンダー</button>
+        <div class="date-nav">
+          <button class="btn btn-secondary btn-sm" onclick="moveSchedDate(-1)">‹ 前日</button>
+          <span class="sched-date-label" id="sched-date-lbl"></span>
+          <button class="btn btn-secondary btn-sm" onclick="moveSchedDate(1)">翌日 ›</button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" onclick="printSchedule()">🖨 印刷</button>
+          <button class="btn btn-primary btn-sm" onclick="openNewBk()">＋ 新規予約</button>
+        </div>
+      </div>
+      <div class="sched-wrap">
+        <div class="sched-room-headers" id="sched-room-headers"></div>
+        <div class="sched-body" id="sched-body"></div>
+      </div>
+    </div>
+
+    <!-- My Bookings -->
+    <div id="my-bookings-view" class="hidden">
+      <div class="view-header">
+        <h2 class="view-title">マイ予約</h2>
+        <button class="btn btn-secondary btn-sm" onclick="printMyBk()">🖨 印刷</button>
+      </div>
+      <div id="my-bk-container"></div>
+    </div>
+
+    <!-- Notifications -->
+    <div id="notifications-view" class="hidden">
+      <div class="view-header">
+        <h2 class="view-title">🔔 通知センター</h2>
+        <button class="btn btn-secondary btn-sm" onclick="markAllRead();renderNotifs()">すべて既読</button>
+      </div>
+      <div id="notif-list-container"></div>
+    </div>
+
+    <!-- My Account -->
+    <div id="my-account-view" class="hidden">
+      <div class="view-header"><h2 class="view-title">マイアカウント</h2></div>
+      <div class="account-card">
+        <h3>プロフィール</h3>
+        <div id="prof-ok" class="msg msg-success hidden"></div>
+        <div id="prof-err" class="msg msg-error hidden"></div>
+        <div class="form-group"><label>お名前</label><input type="text" id="acc-name" /></div>
+        <div class="form-group"><label>メールアドレス</label><input type="email" id="acc-email" disabled style="background:#F9FAFB;color:#9CA3AF" /></div>
+        <div class="form-group"><label>携帯電話番号</label><input type="tel" id="acc-phone" placeholder="例: 09012345678" /></div>
+        <div class="form-group"><label>権限</label><div id="acc-role-badge"></div></div>
+        <button class="btn btn-primary btn-sm" onclick="saveProfile()">更新する</button>
+      </div>
+      <div class="account-card">
+        <h3>パスワード変更</h3>
+        <div id="pw-ok" class="msg msg-success hidden"></div>
+        <div id="pw-err" class="msg msg-error hidden"></div>
+        <div class="form-group"><label>新しいパスワード（8文字以上）</label><input type="password" id="new-pw" /></div>
+        <div class="form-group"><label>新しいパスワード（確認）</label><input type="password" id="new-pw2" /></div>
+        <button class="btn btn-primary btn-sm" onclick="savePassword()">変更する</button>
+      </div>
+    </div>
+
+    <!-- Admin Settings -->
+    <div id="admin-settings-view" class="hidden">
+      <div class="view-header"><h2 class="view-title">⚙️ システム管理</h2></div>
+      <div class="account-card" style="max-width:580px">
+        <h3>予約時間帯・承認設定</h3>
+        <div id="settings-ok" class="msg msg-success hidden"></div>
+        <div class="toggle-row">
+          <div><label class="lbl">承認フロー</label><small>ONにすると管理者の承認後に予約が確定します</small></div>
+          <label class="toggle"><input type="checkbox" id="approval-toggle" onchange="saveSettings()"><span class="toggle-slider"></span></label>
+        </div>
+        <div class="form-group" style="margin-top:14px">
+          <label>予約可能時間帯</label>
+          <div class="hour-row" style="margin-top:6px">
+            <select id="start-hour-sel" onchange="saveSettings()"></select>
+            <span style="color:#6B7280;font-weight:700">〜</span>
+            <select id="end-hour-sel" onchange="saveSettings()"></select>
+          </div>
+        </div>
+      </div>
+      <div class="account-card" id="pending-card" style="max-width:580px;display:none">
+        <h3>承認待ち予約</h3>
+        <div id="pending-list"></div>
+      </div>
+      <div class="account-card" style="max-width:580px">
+        <h3>部屋の設定</h3>
+        <div id="room-editor"></div>
+        <div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="saveRooms()">保存する</button></div>
+      </div>
+      <div class="account-card" style="max-width:580px">
+        <h3>新規ユーザー追加</h3>
+        <div id="new-user-msg"></div>
+        <div class="form-group"><label>お名前</label><input type="text" id="nu-name" placeholder="例: 田中 太郎" /></div>
+        <div class="form-group"><label>メールアドレス</label><input type="email" id="nu-email" /></div>
+        <div class="form-group"><label>パスワード（8文字以上）</label><input type="password" id="nu-pw" /></div>
+        <div class="form-group"><label>権限</label>
+          <select id="nu-role" style="width:100%;padding:10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:14px;font-family:inherit;">
+            <option value="user">一般ユーザー</option>
+            <option value="admin">管理者</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="adminAddUser()">追加する</button>
+      </div>
+      <div class="account-card" style="max-width:580px">
+        <h3>ユーザー管理</h3>
+        <div id="user-list"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Booking Modal -->
+<div class="modal-overlay hidden" id="modal">
+  <div class="modal-card">
+    <div class="modal-hdr"><h3 id="modal-ttl">予約する</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ── SUPABASE ──────────────────────────────────
+const SUPABASE_URL = 'https://xnsjgssylvpsxddzhujr.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhuc2pnc3N5bHZwc3hkZHpodWpyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyMTA3ODksImV4cCI6MjA5Nzc4Njc4OX0.AV7GUWVf2sXpbSECYm3iOT9TUfyGO8VApkKTJWctL7Y';
+const SUPA = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── CONSTANTS & STATE ─────────────────────────
+let ROOMS      = ['A','B','C','D'];
+let ROOM_COLOR = {A:'#3B82F6',B:'#10B981',C:'#F59E0B',D:'#8B5CF6'};
+let ROOM_NAME  = {A:'A室',B:'B室',C:'C室',D:'D室'};
+const SLOT_PX    = 40;
+const WDAYS      = ['日','月','火','水','木','金','土'];
+let START_H = 0, END_H = 24, APPROVAL_REQUIRED = false;
+let CU = null;
+let schedBks = [];
+
+// ── UTILS ─────────────────────────────────────
+const pad = n => String(n).padStart(2,'0');
+const fmtDate = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseDate = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
+const fmtDateJP = s => { const d=parseDate(s); return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${WDAYS[d.getDay()]}）`; };
+const toMin  = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
+const fromMin = n => `${pad(Math.floor(n/60))}:${pad(n%60)}`;
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2);
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function toast(msg, type='success') {
+  const el=document.createElement('div'); el.className=`toast toast-${type}`; el.textContent=msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>el.remove(),3500);
+}
+const showLoading = () => document.getElementById('loading-overlay').classList.remove('hidden');
+const hideLoading = () => document.getElementById('loading-overlay').classList.add('hidden');
+const showMsg = (el,msg) => { el.textContent=msg; el.classList.remove('hidden'); };
+const hideMsg = el => el.classList.add('hidden');
+
+function timeOpts() {
+  const a=[];
+  for(let h=START_H;h<=END_H;h++) for(let m=0;m<60;m+=15) { if(h===END_H&&m>0) break; a.push(fromMin(h*60+m)); }
+  return a;
+}
+function makeTimeSel(id, val) {
+  const sel=document.createElement('select');
+  sel.id=id; sel.style.cssText='width:100%;padding:10px 12px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:15px;background:white;font-family:inherit;';
+  timeOpts().forEach(t=>{ const o=document.createElement('option'); o.value=o.textContent=t; if(t===val) o.selected=true; sel.appendChild(o); });
+  return sel;
+}
+
+// ── AUTH ──────────────────────────────────────
+async function doLogin() {
+  const email=document.getElementById('login-email').value.trim();
+  const pw=document.getElementById('login-pw').value;
+  const errEl=document.getElementById('login-err');
+  if(!email||!pw){ showMsg(errEl,'メールアドレスとパスワードを入力してください'); return; }
+  showLoading();
+  const {data,error}=await SUPA.auth.signInWithPassword({email,password:pw});
+  if(error){ hideLoading(); showMsg(errEl,'メールアドレスまたはパスワードが正しくありません'); return; }
+  await afterSignIn(data.user);
+}
+
+async function doRegister() {
+  const name=document.getElementById('reg-name').value.trim();
+  const email=document.getElementById('reg-email').value.trim();
+  const pw=document.getElementById('reg-pw').value;
+  const pw2=document.getElementById('reg-pw2').value;
+  const phone=document.getElementById('reg-phone').value.trim();
+  const errEl=document.getElementById('reg-err');
+  if(!name||!email||!pw){ showMsg(errEl,'すべての項目を入力してください'); return; }
+  if(pw.length<8){ showMsg(errEl,'パスワードは8文字以上にしてください'); return; }
+  if(pw!==pw2){ showMsg(errEl,'パスワードが一致しません'); return; }
+  showLoading();
+  const {data,error}=await SUPA.auth.signUp({email,password:pw,options:{data:{name,phone}}});
+  if(error){ hideLoading(); showMsg(errEl,error.message); return; }
+  if(data.user && data.session) await afterSignIn(data.user);
+  else { hideLoading(); showMsg(errEl,'確認メールを送信しました。メールをご確認ください。'); }
+}
+
+async function afterSignIn(authUser) {
+  await loadSettings();
+  const {data:profile}=await SUPA.from('profiles').select('*').eq('id',authUser.id).single();
+  CU={id:authUser.id,email:authUser.email,name:profile?.name||authUser.email,role:profile?.role||'user',phone:profile?.phone||''};
+  hideLoading(); startApp();
+}
+
+async function doLogout() {
+  await SUPA.auth.signOut(); CU=null;
+  document.getElementById('app-section').classList.add('hidden');
+  document.getElementById('auth-section').classList.remove('hidden');
+  switchToLogin({preventDefault:()=>{}});
+}
+
+function switchToLogin(e){ e.preventDefault(); document.getElementById('register-wrap').classList.add('hidden'); document.getElementById('login-wrap').classList.remove('hidden'); }
+function switchToRegister(e){ e.preventDefault(); document.getElementById('login-wrap').classList.add('hidden'); document.getElementById('register-wrap').classList.remove('hidden'); }
+
+// ── SETTINGS ──────────────────────────────────
+async function loadSettings() {
+  const {data}=await SUPA.from('settings').select('*').eq('id',1).single();
+  if(data){ START_H=data.start_hour; END_H=data.end_hour; APPROVAL_REQUIRED=data.approval_required; }
+  const {data:rd}=await SUPA.from('rooms').select('*').order('display_order');
+  if(rd&&rd.length){
+    ROOMS=rd.map(r=>r.id);
+    ROOM_COLOR=Object.fromEntries(rd.map(r=>[r.id,r.color]));
+    ROOM_NAME=Object.fromEntries(rd.map(r=>[r.id,r.name]));
+  }
+}
+
+// ── BOOKINGS DB ───────────────────────────────
+async function getBookings(f={}) {
+  let q=SUPA.from('bookings').select('*');
+  if(f.date)      q=q.eq('date',f.date);
+  if(f.dateStart) q=q.gte('date',f.dateStart);
+  if(f.dateEnd)   q=q.lte('date',f.dateEnd);
+  if(f.userId)    q=q.eq('user_id',f.userId);
+  if(f.status)    q=q.eq('status',f.status);
+  q=q.order('date').order('start_time');
+  const {data,error}=await q;
+  if(error) throw error;
+  return data||[];
+}
+
+// ── APP START ─────────────────────────────────
+function startApp() {
+  document.getElementById('auth-section').classList.add('hidden');
+  document.getElementById('app-section').classList.remove('hidden');
+  document.getElementById('nav-uname').textContent=CU.name;
+  if(CU.role==='admin') document.getElementById('nav-admin-settings').classList.remove('hidden');
+  updateBadge(); gotoView('calendar');
+}
+
+// ── VIEWS ─────────────────────────────────────
+const VIEWS=['calendar','schedule','my-bookings','notifications','my-account','admin-settings'];
+function gotoView(name) {
+  VIEWS.forEach(v=>{ document.getElementById(`${v}-view`).classList.add('hidden'); const n=document.getElementById(`nav-${v}`); if(n) n.classList.remove('active'); });
+  document.getElementById(`${name}-view`).classList.remove('hidden');
+  const n=document.getElementById(`nav-${name}`); if(n) n.classList.add('active');
+  if(name==='calendar')       renderCalendar();
+  if(name==='my-bookings')    renderMyBk();
+  if(name==='my-account')     renderAccount();
+  if(name==='notifications')  renderNotifs();
+  if(name==='admin-settings') renderAdminSettings();
+}
+
+// ── CALENDAR ──────────────────────────────────
+let calDate=new Date(), selDate=null;
+
+async function renderCalendar() {
+  const yr=calDate.getFullYear(), mo=calDate.getMonth();
+  document.getElementById('cal-month-lbl').textContent=`${yr}年 ${mo+1}月`;
+  showLoading();
+  try {
+    const ms=`${yr}-${pad(mo+1)}`;
+    const lastDay=new Date(yr,mo+1,0).getDate();
+    const bks=await getBookings({dateStart:`${ms}-01`,dateEnd:`${ms}-${pad(lastDay)}`});
+    document.getElementById('stats-grid').innerHTML=ROOMS.map(r=>`
+      <div class="stat-card" onclick="openSched('${fmtDate(new Date())}')">
+        <div class="stat-room-badge" style="background:${ROOM_COLOR[r]}">${r}</div>
+        <div class="stat-label">今月の予約</div>
+        <div class="stat-count">${bks.filter(b=>b.room_id===r).length}件</div>
+      </div>`).join('');
+    const byDate={};
+    bks.forEach(b=>{ (byDate[b.date]||(byDate[b.date]=[])).push(b); });
+    const first=new Date(yr,mo,1), last=new Date(yr,mo+1,0), todayS=fmtDate(new Date());
+    const wrap=document.getElementById('cal-days'); wrap.innerHTML='';
+    for(let i=0;i<first.getDay();i++) wrap.appendChild(dayCell(new Date(yr,mo,-first.getDay()+i+1),true,byDate,todayS));
+    for(let d=1;d<=last.getDate();d++) wrap.appendChild(dayCell(new Date(yr,mo,d),false,byDate,todayS));
+    const trail=(first.getDay()+last.getDate())%7===0?0:7-((first.getDay()+last.getDate())%7);
+    for(let i=1;i<=trail;i++) wrap.appendChild(dayCell(new Date(yr,mo+1,i),true,byDate,todayS));
+  } finally { hideLoading(); }
+}
+
+function dayCell(date,other,byDate,todayS) {
+  const ds=fmtDate(date), dow=date.getDay();
+  const el=document.createElement('div');
+  el.className='cal-day'+(other?' other-month':'')+(ds===todayS?' today':'')+(ds===selDate?' selected':'');
+  const num=document.createElement('div');
+  num.className='day-num'+(dow===0?' sun':dow===6?' sat':'');
+  num.textContent=date.getDate(); el.appendChild(num);
+  (byDate[ds]||[]).slice(0,3).forEach(b=>{ const dot=document.createElement('div'); dot.className='day-dot'; dot.style.background=ROOM_COLOR[b.room_id]; dot.textContent=`${ROOM_NAME[b.room_id]} ${b.title}`; el.appendChild(dot); });
+  const extra=(byDate[ds]||[]).length-3;
+  if(extra>0){ const m=document.createElement('div'); m.style.cssText='font-size:10px;color:#9CA3AF;padding:1px 4px;'; m.textContent=`他${extra}件`; el.appendChild(m); }
+  el.onclick=()=>openSched(ds);
+  return el;
+}
+
+function moveMonth(d){ calDate.setMonth(calDate.getMonth()+d); renderCalendar(); }
+function goToday(){ calDate=new Date(); renderCalendar(); }
+
+// ── SCHEDULE ──────────────────────────────────
+let schedDate=null;
+
+async function openSched(ds){ selDate=ds; schedDate=ds; gotoView('schedule'); await renderSched(); }
+
+async function renderSched() {
+  document.getElementById('sched-date-lbl').textContent=fmtDateJP(schedDate);
+  showLoading();
+  try { schedBks=await getBookings({date:schedDate}); buildSchedGrid(); }
+  finally { hideLoading(); }
+}
+
+function buildSchedGrid() {
+  const hdr=document.getElementById('sched-room-headers');
+  hdr.style.gridTemplateColumns=`60px repeat(${ROOMS.length},1fr)`;
+  hdr.innerHTML='<div class="sched-time-col-hdr"></div>'+ROOMS.map(r=>`<div class="sched-room-hdr" style="background:${ROOM_COLOR[r]}">${ROOM_NAME[r]}</div>`).join('');
+  const slots=(END_H-START_H)*4;
+  const body=document.getElementById('sched-body');
+  body.style.gridTemplateColumns=`60px repeat(${ROOMS.length},1fr)`;
+  body.innerHTML='';
+  const tAxis=document.createElement('div'); tAxis.className='time-axis';
+  for(let i=0;i<slots;i++){
+    const m=START_H*60+i*15, lbl=document.createElement('div');
+    lbl.className='time-lbl'+(m%60===0?' hr':''); lbl.textContent=m%60===0?fromMin(m):'';
+    tAxis.appendChild(lbl);
+  }
+  body.appendChild(tAxis);
+  ROOMS.forEach(room=>{
+    const col=document.createElement('div'); col.className='room-col';
+    for(let i=0;i<slots;i++){
+      const m=START_H*60+i*15, cell=document.createElement('div');
+      cell.className='slot-cell'+(m%60===0?' hr-start':'');
+      cell.onclick=ev=>{ if(!ev.target.closest('.bk-block')) openBkModal(room,schedDate,fromMin(m)); };
+      col.appendChild(cell);
+    }
+    schedBks.filter(b=>b.room_id===room).forEach(b=>{
+      const top=(toMin(b.start_time)-START_H*60)/15*SLOT_PX;
+      const h=(toMin(b.end_time)-toMin(b.start_time))/15*SLOT_PX;
+      const blk=document.createElement('div');
+      blk.className='bk-block'+(b.status==='pending'?' pending':'');
+      blk.style.cssText=`top:${top}px;height:${h-2}px;background:${ROOM_COLOR[room]};`;
+      blk.innerHTML=`<div class="bk-title">${esc(b.title)}</div><div class="bk-time">${b.start_time}〜${b.end_time}</div><div class="bk-user">${esc(b.user_name)}</div>${b.status==='pending'?'<span class="bk-status-lbl">承認待ち</span>':''}`;
+      blk.onclick=ev=>{ ev.stopPropagation(); openBkDetail(b); };
+      col.appendChild(blk);
+    });
+    body.appendChild(col);
+  });
+}
+
+async function moveSchedDate(d){ const dt=parseDate(schedDate); dt.setDate(dt.getDate()+d); schedDate=fmtDate(dt); await renderSched(); }
+
+// ── BOOKING MODAL: NEW ────────────────────────
+function openNewBk(){ openBkModal(null,schedDate||fmtDate(new Date()),null); }
+
+function openBkModal(room,dateS,startT) {
+  const def_st=startT||fromMin(START_H*60);
+  const def_et=fromMin(Math.min(toMin(def_st)+60,END_H*60));
+  document.getElementById('modal-ttl').textContent='新規予約';
+  const roomOpts=ROOMS.map(r=>`<option value="${r}" ${r===(room||'A')?'selected':''}>${ROOM_NAME[r]}</option>`).join('');
+  document.getElementById('modal-body').innerHTML=`
+    <div class="form-group"><label>部屋</label>
+      <select id="f-room" style="width:100%;padding:10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:15px;font-family:inherit;">${roomOpts}</select>
+    </div>
+    <div class="form-group"><label>日付</label><input type="date" id="f-date" value="${dateS||fmtDate(new Date())}" /></div>
+    <div class="form-group"><label>時間</label><div class="time-row" id="time-row-wrap"></div></div>
+    <div class="form-group"><label>タイトル</label><input type="text" id="f-title" placeholder="例: 算数の授業" /></div>
+    <div class="form-group"><label>備考（任意）</label><input type="text" id="f-notes" placeholder="追加情報があれば" /></div>
+    ${APPROVAL_REQUIRED?'<div class="msg msg-info" style="margin-bottom:0">承認フローが有効です。管理者の承認後に確定します。</div>':''}
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveBk()">予約する</button>
+    </div>`;
+  const tr=document.getElementById('time-row-wrap');
+  tr.appendChild(makeTimeSel('f-st',def_st));
+  const sep=document.createElement('span'); sep.textContent='〜'; tr.appendChild(sep);
+  tr.appendChild(makeTimeSel('f-et',def_et));
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+async function saveBk() {
+  const room=document.getElementById('f-room').value;
+  const date=document.getElementById('f-date').value;
+  const st=document.getElementById('f-st').value;
+  const et=document.getElementById('f-et').value;
+  const title=document.getElementById('f-title').value.trim();
+  const notes=document.getElementById('f-notes').value.trim();
+  if(!title){ toast('タイトルを入力してください','error'); return; }
+  if(toMin(st)>=toMin(et)){ toast('終了時間は開始時間より後にしてください','error'); return; }
+  showLoading();
+  try {
+    const existing=await getBookings({date});
+    const conflict=existing.find(b=>b.room_id===room&&b.status!=='rejected'&&toMin(b.start_time)<toMin(et)&&toMin(b.end_time)>toMin(st));
+    if(conflict){ hideLoading(); toast(`${ROOM_NAME[room]}は${conflict.start_time}〜${conflict.end_time}に予約があります`,'error'); return; }
+    const {error}=await SUPA.from('bookings').insert([{room_id:room,user_id:CU.id,user_name:CU.name,date,start_time:st,end_time:et,title,notes,status:APPROVAL_REQUIRED?'pending':'confirmed'}]);
+    if(error) throw error;
+    createNotif('confirmed',{roomId:room,date,st,et,title,notes},{name:CU.name,email:CU.email});
+    closeModal();
+    toast(APPROVAL_REQUIRED?`${ROOM_NAME[room]}を申請しました（承認待ち）`:`${ROOM_NAME[room]}を予約しました！`);
+    await renderSched();
+  } catch(e){ toast('エラー: '+e.message,'error'); }
+  finally{ hideLoading(); }
+}
+
+// ── BOOKING MODAL: DETAIL ─────────────────────
+function openBkDetail(b) {
+  const canDel=b.user_id===CU.id||CU.role==='admin';
+  const canApprove=CU.role==='admin'&&b.status==='pending';
+  document.getElementById('modal-ttl').textContent='予約詳細';
+  document.getElementById('modal-body').innerHTML=`
+    <div class="modal-info-grid">
+      <div><div class="mi-label">部屋</div><div class="mi-val" style="color:${ROOM_COLOR[b.room_id]}">${ROOM_NAME[b.room_id]}</div></div>
+      <div><div class="mi-label">日付</div><div class="mi-val">${fmtDateJP(b.date)}</div></div>
+      <div><div class="mi-label">時間</div><div class="mi-val">${b.start_time}〜${b.end_time}</div></div>
+      <div><div class="mi-label">予約者</div><div class="mi-val">${esc(b.user_name)}</div></div>
+    </div>
+    <div style="margin-bottom:10px"><div style="font-size:12px;color:#9CA3AF;margin-bottom:4px">タイトル</div><div style="font-size:17px;font-weight:800">${esc(b.title)}</div></div>
+    ${b.notes?`<div style="margin-bottom:10px"><div style="font-size:12px;color:#9CA3AF;margin-bottom:4px">備考</div><div style="font-size:14px;color:#374151">${esc(b.notes)}</div></div>`:''}
+    <div style="margin-bottom:4px"><span class="status-badge ${b.status==='pending'?'status-pending':'status-confirmed'}">${b.status==='pending'?'承認待ち':'確定'}</span></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">閉じる</button>
+      ${canApprove?`<button class="btn btn-danger btn-sm" onclick="rejectBk('${b.id}')">却下</button><button class="btn btn-success btn-sm" onclick="approveBk('${b.id}')">承認</button>`:''}
+      ${canDel?`<button class="btn btn-danger" onclick="deleteBk('${b.id}','${b.user_id}','${esc(b.user_name)}')">キャンセル</button>`:''}
+    </div>`;
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+async function deleteBk(id,bookerUserId,bookerName) {
+  if(!confirm('この予約をキャンセルしてもよいですか？')) return;
+  showLoading();
+  try {
+    const bk=schedBks.find(b=>b.id===id);
+    const {error}=await SUPA.from('bookings').delete().eq('id',id);
+    if(error) throw error;
+    if(bk) createNotif('cancelled',{roomId:bk.room_id,date:bk.date,st:bk.start_time,et:bk.end_time,title:bk.title,notes:''},{name:bookerName,email:''});
+    closeModal(); toast('予約をキャンセルしました');
+    await renderSched();
+    if(!document.getElementById('my-bookings-view').classList.contains('hidden')) await renderMyBk();
+  } catch(e){ toast('エラー: '+e.message,'error'); }
+  finally{ hideLoading(); }
+}
+
+async function approveBk(id) {
+  showLoading();
+  try { const {error}=await SUPA.from('bookings').update({status:'confirmed'}).eq('id',id); if(error) throw error; closeModal(); toast('予約を承認しました'); await renderSched(); }
+  catch(e){ toast('エラー: '+e.message,'error'); } finally{ hideLoading(); }
+}
+
+async function rejectBk(id) {
+  if(!confirm('この予約を却下しますか？')) return;
+  showLoading();
+  try { const {error}=await SUPA.from('bookings').update({status:'rejected'}).eq('id',id); if(error) throw error; closeModal(); toast('予約を却下しました'); await renderSched(); }
+  catch(e){ toast('エラー: '+e.message,'error'); } finally{ hideLoading(); }
+}
+
+function closeModal(){ document.getElementById('modal').classList.add('hidden'); }
+
+// ── MY BOOKINGS ───────────────────────────────
+async function renderMyBk() {
+  showLoading();
+  try {
+    const f=CU.role==='admin'?{}:{userId:CU.id};
+    const mine=await getBookings(f);
+    const today=fmtDate(new Date());
+    const upcoming=mine.filter(b=>b.date>=today&&b.status!=='rejected');
+    const past=mine.filter(b=>b.date<today);
+    const el=document.getElementById('my-bk-container');
+    if(!mine.length){ el.innerHTML=`<div class="empty-state"><div class="empty-icon">📅</div><h3>予約がありません</h3><p>カレンダーから部屋を予約してください</p></div>`; return; }
+    let html='';
+    if(upcoming.length){ html+=`<div class="section-heading">今後の予約（${upcoming.length}件）</div><div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">`+upcoming.map(b=>bkCardHTML(b,true)).join('')+'</div>'; }
+    if(past.length){ html+=`<div class="section-heading muted">過去の予約（${past.length}件）</div><div style="display:flex;flex-direction:column;gap:10px">`+past.map(b=>bkCardHTML(b,false)).join('')+'</div>'; }
+    el.innerHTML=html;
+  } finally{ hideLoading(); }
+}
+
+function bkCardHTML(b,canCancel) {
+  const isOwner=b.user_id===CU.id||CU.role==='admin';
+  const adminTag=CU.role==='admin'?`<div class="bk-card-sub" style="color:#D1D5DB">予約者: ${esc(b.user_name)}</div>`:'';
+  const stBadge=b.status==='pending'?`<span class="status-badge status-pending">承認待ち</span>`:'';
+  return `<div class="bk-card">
+    <div class="bk-room-badge" style="background:${ROOM_COLOR[b.room_id]}">${b.room_id}</div>
+    <div class="bk-info">
+      <div class="bk-card-title">${esc(b.title)} ${stBadge}</div>
+      <div class="bk-card-sub">${fmtDateJP(b.date)}</div>
+      <div class="bk-card-sub">${b.start_time}〜${b.end_time}</div>${adminTag}
+    </div>
+    <div class="bk-actions">
+      <button class="btn btn-secondary btn-sm" onclick="jumpToBk('${b.date}','${b.id}')">確認</button>
+      ${isOwner&&canCancel?`<button class="btn btn-danger btn-sm" onclick="deleteBk('${b.id}','${b.user_id}','${esc(b.user_name)}')">取消</button>`:''}
+    </div>
+  </div>`;
+}
+
+async function jumpToBk(dateS,id){ schedDate=dateS; selDate=dateS; gotoView('schedule'); await renderSched(); setTimeout(()=>{ const b=schedBks.find(x=>x.id===id); if(b) openBkDetail(b); },200); }
+
+// ── MY ACCOUNT ────────────────────────────────
+function renderAccount() {
+  document.getElementById('acc-name').value=CU.name;
+  document.getElementById('acc-email').value=CU.email;
+  document.getElementById('acc-phone').value=CU.phone||'';
+  document.getElementById('acc-role-badge').innerHTML=CU.role==='admin'?'<span class="role-badge role-admin">管理者</span>':'<span class="role-badge role-user">一般ユーザー</span>';
+  ['prof-ok','prof-err','pw-ok','pw-err'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+}
+
+async function saveProfile() {
+  const name=document.getElementById('acc-name').value.trim();
+  const phone=document.getElementById('acc-phone').value.trim();
+  const ok=document.getElementById('prof-ok'), err=document.getElementById('prof-err');
+  if(!name){ showMsg(err,'名前を入力してください'); hideMsg(ok); return; }
+  showLoading();
+  const {error}=await SUPA.from('profiles').update({name,phone}).eq('id',CU.id);
+  hideLoading();
+  if(error){ showMsg(err,error.message); hideMsg(ok); return; }
+  CU.name=name; CU.phone=phone; document.getElementById('nav-uname').textContent=name;
+  hideMsg(err); showMsg(ok,'プロフィールを更新しました'); toast('プロフィールを更新しました');
+}
+
+async function savePassword() {
+  const n1=document.getElementById('new-pw').value, n2=document.getElementById('new-pw2').value;
+  const ok=document.getElementById('pw-ok'), err=document.getElementById('pw-err');
+  if(n1.length<8){ showMsg(err,'8文字以上のパスワードを設定してください'); hideMsg(ok); return; }
+  if(n1!==n2){ showMsg(err,'パスワードが一致しません'); hideMsg(ok); return; }
+  showLoading();
+  const {error}=await SUPA.auth.updateUser({password:n1});
+  hideLoading();
+  if(error){ showMsg(err,error.message); hideMsg(ok); return; }
+  document.getElementById('new-pw').value=''; document.getElementById('new-pw2').value='';
+  hideMsg(err); showMsg(ok,'パスワードを変更しました'); toast('パスワードを変更しました');
+}
+
+// ── ADMIN SETTINGS ────────────────────────────
+async function renderAdminSettings() {
+  const sS=document.getElementById('start-hour-sel'), eS=document.getElementById('end-hour-sel');
+  sS.innerHTML=''; eS.innerHTML='';
+  for(let h=0;h<=23;h++){ sS.add(new Option(`${h}:00`,h,false,h===START_H)); }
+  for(let h=1;h<=24;h++){ eS.add(new Option(`${h}:00`,h,false,h===END_H)); }
+  document.getElementById('approval-toggle').checked=APPROVAL_REQUIRED;
+  const pc=document.getElementById('pending-card');
+  if(APPROVAL_REQUIRED){ pc.style.display=''; renderPendingBks(); } else pc.style.display='none';
+  renderRoomEditor();
+  showLoading();
+  try {
+    const {data:users}=await SUPA.from('profiles').select('*').order('name');
+    document.getElementById('user-list').innerHTML=(users||[]).map(u=>`
+      <div class="user-row">
+        <div class="user-row-info"><div class="user-row-name">${esc(u.name)}</div><div class="user-row-email">${esc(u.id.slice(0,8))}...</div></div>
+        <select onchange="changeRole('${u.id}',this.value)" style="padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px;font-family:inherit;">
+          <option value="user"  ${u.role==='user' ?'selected':''}>一般</option>
+          <option value="admin" ${u.role==='admin'?'selected':''}>管理者</option>
+        </select>
+      </div>`).join('');
+  } finally{ hideLoading(); }
+}
+
+async function saveSettings() {
+  const sh=parseInt(document.getElementById('start-hour-sel').value);
+  const eh=parseInt(document.getElementById('end-hour-sel').value);
+  const ap=document.getElementById('approval-toggle').checked;
+  if(sh>=eh){ toast('終了時間は開始時間より後にしてください','error'); return; }
+  const {error}=await SUPA.from('settings').update({start_hour:sh,end_hour:eh,approval_required:ap}).eq('id',1);
+  if(error){ toast('保存失敗: '+error.message,'error'); return; }
+  START_H=sh; END_H=eh; APPROVAL_REQUIRED=ap;
+  const pc=document.getElementById('pending-card');
+  if(ap){ pc.style.display=''; renderPendingBks(); } else pc.style.display='none';
+  document.getElementById('settings-ok').textContent='設定を保存しました';
+  document.getElementById('settings-ok').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('settings-ok').classList.add('hidden'),3000);
+  toast('設定を保存しました');
+}
+
+async function renderPendingBks() {
+  const bks=await getBookings({status:'pending'});
+  document.getElementById('pending-list').innerHTML=bks.length
+    ?bks.map(b=>`<div class="bk-card" style="margin-bottom:8px">
+        <div class="bk-room-badge" style="background:${ROOM_COLOR[b.room_id]}">${b.room_id}</div>
+        <div class="bk-info"><div class="bk-card-title">${esc(b.title)}</div><div class="bk-card-sub">${fmtDateJP(b.date)} ${b.start_time}〜${b.end_time}</div><div class="bk-card-sub">申請者: ${esc(b.user_name)}</div></div>
+        <div class="bk-actions"><button class="btn btn-danger btn-sm" onclick="rejectBk('${b.id}')">却下</button><button class="btn btn-success btn-sm" onclick="approveBk('${b.id}')">承認</button></div>
+      </div>`).join('')
+    :'<div style="color:#9CA3AF;font-size:13px;padding:8px 0">承認待ちの予約はありません</div>';
+}
+
+async function changeRole(userId,role){ const {error}=await SUPA.from('profiles').update({role}).eq('id',userId); if(error) toast('エラー: '+error.message,'error'); else toast('権限を変更しました'); }
+
+function renderRoomEditor() {
+  document.getElementById('room-editor').innerHTML=ROOMS.map(r=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F3F4F6">
+      <div style="width:36px;height:36px;border-radius:8px;background:${ROOM_COLOR[r]};flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:16px">${r}</div>
+      <input type="text" id="rn-${r}" value="${esc(ROOM_NAME[r])}" style="flex:1;padding:8px 10px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:14px;font-family:inherit;" placeholder="部屋名" />
+      <input type="color" id="rc-${r}" value="${ROOM_COLOR[r]}" style="width:44px;height:36px;border:none;border-radius:8px;cursor:pointer;padding:2px;" title="色を選択" />
+    </div>`).join('');
+}
+
+async function saveRooms() {
+  showLoading();
+  try {
+    for(const r of ROOMS){
+      const name=document.getElementById(`rn-${r}`).value.trim();
+      const color=document.getElementById(`rc-${r}`).value;
+      if(!name) continue;
+      const {error}=await SUPA.from('rooms').update({name,color}).eq('id',r);
+      if(error) throw error;
+      ROOM_NAME[r]=name; ROOM_COLOR[r]=color;
+    }
+    toast('部屋の設定を保存しました');
+    renderRoomEditor();
+  } catch(e){ toast('エラー: '+e.message,'error'); }
+  finally{ hideLoading(); }
+}
+
+async function adminAddUser() {
+  const name=document.getElementById('nu-name').value.trim();
+  const email=document.getElementById('nu-email').value.trim();
+  const pw=document.getElementById('nu-pw').value;
+  const role=document.getElementById('nu-role').value;
+  const msgEl=document.getElementById('new-user-msg');
+  hideMsg(msgEl);
+  if(!name||!email||!pw){ showMsg(msgEl,'すべての項目を入力してください'); msgEl.className='msg msg-error'; return; }
+  if(pw.length<8){ showMsg(msgEl,'パスワードは8文字以上にしてください'); msgEl.className='msg msg-error'; return; }
+  showLoading();
+  try {
+    const tmp=supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:false}});
+    const {data,error}=await tmp.auth.signUp({email,password:pw,options:{data:{name}}});
+    if(error) throw error;
+    if(role==='admin'&&data.user){
+      await new Promise(r=>setTimeout(r,1500));
+      await SUPA.from('profiles').update({role:'admin'}).eq('id',data.user.id);
+    }
+    document.getElementById('nu-name').value='';
+    document.getElementById('nu-email').value='';
+    document.getElementById('nu-pw').value='';
+    showMsg(msgEl,`${name}さんを追加しました`); msgEl.className='msg msg-success';
+    toast(`${name}さんを追加しました`);
+    renderAdminSettings();
+  } catch(e){ showMsg(msgEl,'エラー: '+e.message); msgEl.className='msg msg-error'; }
+  finally{ hideLoading(); }
+}
+
+// ── NOTIFICATIONS (localStorage) ─────────────
+function buildMailtoUrl(type,bk,target) {
+  const sub=type==='confirmed'?`【予約確認】${ROOM_NAME[bk.roomId]} ${bk.date} ${bk.st}〜${bk.et}`:`【キャンセル】${ROOM_NAME[bk.roomId]} ${bk.date} ${bk.st}〜${bk.et}`;
+  const body=type==='confirmed'
+    ?`${target.name} 様\n\n以下の予約が確定しました。\n\n部屋: ${ROOM_NAME[bk.roomId]}\n日付: ${fmtDateJP(bk.date)}\n時間: ${bk.st}〜${bk.et}\n件名: ${bk.title}${bk.notes?'\n備考: '+bk.notes:''}\n\n部屋予約システム`
+    :`${target.name} 様\n\n以下の予約がキャンセルされました。\n\n部屋: ${ROOM_NAME[bk.roomId]}\n日付: ${fmtDateJP(bk.date)}\n時間: ${bk.st}〜${bk.et}\n件名: ${bk.title}\n\n部屋予約システム`;
+  return `mailto:${target.email}?subject=${encodeURIComponent(sub)}&body=${encodeURIComponent(body)}`;
+}
+
+function createNotif(type,bk,target) {
+  const n={id:uid(),type,icon:type==='confirmed'?'✅':'❌',toName:target.name,toEmail:target.email,
+    subject:type==='confirmed'?`【予約確認】${ROOM_NAME[bk.roomId]} ${bk.st}〜${bk.et} ${bk.title}`:`【キャンセル】${ROOM_NAME[bk.roomId]} ${bk.st}〜${bk.et} ${bk.title}`,
+    bkRoom:bk.roomId,bkDate:bk.date,bkSt:bk.st,bkEt:bk.et,bkTitle:bk.title,
+    mailtoUrl:target.email?buildMailtoUrl(type,bk,target):'',createdAt:Date.now(),read:false};
+  const ns=JSON.parse(localStorage.getItem('rbms_notifs')||'[]'); ns.unshift(n);
+  localStorage.setItem('rbms_notifs',JSON.stringify(ns)); updateBadge();
+}
+
+function updateBadge() {
+  const b=document.getElementById('notif-badge'); if(!b) return;
+  const u=JSON.parse(localStorage.getItem('rbms_notifs')||'[]').filter(n=>!n.read).length;
+  if(u>0){ b.textContent=u>99?'99+':u; b.classList.remove('hidden'); } else b.classList.add('hidden');
+}
+
+function renderNotifs() {
+  const ns=JSON.parse(localStorage.getItem('rbms_notifs')||'[]');
+  const el=document.getElementById('notif-list-container');
+  if(!ns.length){ el.innerHTML=`<div class="empty-state"><div class="empty-icon">🔔</div><h3>通知はありません</h3><p>予約の作成・キャンセル時に通知が届きます</p></div>`; return; }
+  el.innerHTML=`<div class="notif-list">`+ns.map(n=>`
+    <div class="notif-card ${n.read?'':'unread'}">
+      <div class="notif-icon">${n.icon||'📧'}</div>
+      <div class="notif-info">
+        <div class="notif-subj">${esc(n.subject)}</div>
+        <div class="notif-meta">宛先: ${esc(n.toName)}（${esc(n.toEmail||'未設定')}）</div>
+        <div class="notif-meta">${ROOM_NAME[n.bkRoom]||n.bkRoom} / ${fmtDateJP(n.bkDate)} ${n.bkSt}〜${n.bkEt}</div>
+        <div class="notif-time">${fmtTimeAgo(n.createdAt)}</div>
+      </div>
+      <div class="notif-acts">
+        ${n.toEmail?`<a href="${n.mailtoUrl}" class="btn btn-primary btn-sm" onclick="markRead('${n.id}')" target="_blank">📧 メール</a>`:''}
+        ${!n.read?`<button class="btn btn-secondary btn-sm" onclick="markRead('${n.id}');renderNotifs()">既読</button>`:'<span style="font-size:10px;color:#9CA3AF">既読</span>'}
+      </div>
+    </div>`).join('')+`</div>`;
+  markAllRead();
+}
+
+function markRead(id){ const ns=JSON.parse(localStorage.getItem('rbms_notifs')||'[]'), n=ns.find(x=>x.id===id); if(n){ n.read=true; localStorage.setItem('rbms_notifs',JSON.stringify(ns)); updateBadge(); } }
+function markAllRead(){ const ns=JSON.parse(localStorage.getItem('rbms_notifs')||'[]'); ns.forEach(n=>n.read=true); localStorage.setItem('rbms_notifs',JSON.stringify(ns)); updateBadge(); }
+function fmtTimeAgo(ts){ const m=Math.floor((Date.now()-ts)/60000); if(m<1) return 'たった今'; if(m<60) return `${m}分前`; const h=Math.floor(m/60); if(h<24) return `${h}時間前`; return `${Math.floor(h/24)}日前`; }
+
+// ── PRINT ─────────────────────────────────────
+function printSchedule() {
+  const bks=schedBks, slots=(END_H-START_H)*4, covered={};
+  ROOMS.forEach(r=>{ covered[r]={}; });
+  let rows='';
+  for(let i=0;i<slots;i++){
+    const m=START_H*60+i*15, t=fromMin(m), isHr=m%60===0;
+    rows+=`<tr style="${isHr?'border-top:1.5px solid #bbb':''}"><td style="padding:1px 8px;font-size:${isHr?11:9}px;color:${isHr?'#333':'#ccc'};white-space:nowrap;border-right:1px solid #ddd;min-width:44px;vertical-align:top;">${isHr?t:''}</td>`;
+    ROOMS.forEach(r=>{
+      if(covered[r][i]) return;
+      const bk=bks.filter(b=>b.room_id===r).find(b=>toMin(b.start_time)===m);
+      if(bk){ const rs=(toMin(bk.end_time)-toMin(bk.start_time))/15; for(let k=1;k<rs;k++) covered[r][i+k]=true;
+        rows+=`<td rowspan="${rs}" style="background:${ROOM_COLOR[r]};color:white;padding:5px 7px;vertical-align:top;border:1px solid rgba(255,255,255,0.3);"><div style="font-weight:700;font-size:12px;">${esc(bk.title)}</div><div style="font-size:10px;opacity:0.9;">${bk.start_time}〜${bk.end_time}</div><div style="font-size:10px;opacity:0.85;">${esc(bk.user_name)}</div></td>`;
+      } else rows+=`<td style="border:1px solid #f0f0f0;"></td>`;
+    });
+    rows+='</tr>';
+  }
+  const w=window.open('','_blank','width=820,height=950');
+  w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>予約スケジュール</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;margin:24px}h1{font-size:20px;margin-bottom:4px}h2{font-size:14px;color:#6B7280;font-weight:400;margin-bottom:20px}table{width:100%;border-collapse:collapse}th{padding:10px 8px;text-align:center;color:white;font-size:14px;font-weight:700}@media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}</style></head><body><h1>🏫 部屋予約スケジュール</h1><h2>${fmtDateJP(schedDate)}</h2><table><thead><tr><th style="background:#374151;min-width:44px">時間</th>${ROOMS.map(r=>`<th style="background:${ROOM_COLOR[r]}">${ROOM_NAME[r]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>{setTimeout(()=>{window.print();},200);}<\/script></body></html>`);
+  w.document.close();
+}
+
+async function printMyBk() {
+  const f=CU.role==='admin'?{}:{userId:CU.id};
+  const mine=await getBookings(f); mine.sort((a,b)=>a.date!==b.date?a.date.localeCompare(b.date):a.start_time.localeCompare(b.start_time));
+  const today=fmtDate(new Date()), adminTh=CU.role==='admin'?'<th>予約者</th>':'';
+  const rows=mine.map(b=>{ const isPast=b.date<today, adminTd=CU.role==='admin'?`<td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:#6B7280">${esc(b.user_name)}</td>`:'';
+    return `<tr style="background:${isPast?'#F9FAFB':'white'}"><td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;color:${isPast?'#9CA3AF':'#1F2937'}">${fmtDateJP(b.date)}</td><td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;text-align:center"><span style="background:${ROOM_COLOR[b.room_id]};color:white;padding:2px 10px;border-radius:6px;font-weight:700">${b.room_id}</span></td><td style="padding:8px 10px;border-bottom:1px solid #E5E7EB">${b.start_time}〜${b.end_time}</td><td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;font-weight:600">${esc(b.title)}</td>${adminTd}</tr>`; }).join('');
+  const w=window.open('','_blank','width=820,height=950');
+  w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>予約一覧</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;margin:24px}h1{font-size:20px;margin-bottom:4px}h2{font-size:14px;color:#6B7280;font-weight:400;margin-bottom:20px}table{width:100%;border-collapse:collapse}th{padding:10px 12px;text-align:left;color:white;font-size:13px;background:#374151}@media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}</style></head><body><h1>🏫 予約一覧</h1><h2>${esc(CU.name)} / ${fmtDateJP(today)}（全${mine.length}件）</h2><table><thead><tr><th>日付</th><th style="min-width:60px;text-align:center">部屋</th><th>時間</th><th>タイトル</th>${adminTh}</tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>{setTimeout(()=>{window.print();},200);}<\/script></body></html>`);
+  w.document.close();
+}
+
+// ── BOOT ──────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('modal').addEventListener('click', e=>{ if(e.target===document.getElementById('modal')) closeModal(); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+  document.getElementById('login-pw').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  document.getElementById('reg-pw2').addEventListener('keydown',  e=>{ if(e.key==='Enter') doRegister(); });
+
+  const {data:{session}}=await SUPA.auth.getSession();
+  if(session){
+    await loadSettings();
+    const {data:profile}=await SUPA.from('profiles').select('*').eq('id',session.user.id).single();
+    CU={id:session.user.id,email:session.user.email,name:profile?.name||session.user.email,role:profile?.role||'user'};
+    hideLoading(); startApp();
+  } else {
+    hideLoading();
+    document.getElementById('auth-section').classList.remove('hidden');
+  }
+
+  SUPA.auth.onAuthStateChange(event=>{
+    if(event==='SIGNED_OUT'){ CU=null; document.getElementById('app-section').classList.add('hidden'); document.getElementById('auth-section').classList.remove('hidden'); }
+  });
+});
+</script>
+</body>
+</html>
