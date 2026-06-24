@@ -535,7 +535,7 @@ function startApp() {
   document.getElementById('app-section').classList.remove('hidden');
   document.getElementById('nav-uname').textContent=CU.name;
   if(CU.role==='admin') document.getElementById('nav-admin-settings').classList.remove('hidden');
-  updateBadge(); gotoView('calendar');
+  updateBadge(); setTimeout(()=>gotoView('calendar'),50);
 }
 
 // ── VIEWS ─────────────────────────────────────
