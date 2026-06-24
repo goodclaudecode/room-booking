@@ -422,6 +422,8 @@ function calcFee(room, useHvac) {
 }
 let CU = null;
 let schedBks = [];
+let DETAIL_BK = null;
+let REPORT_BKS = {};
 
 // ── UTILS ─────────────────────────────────────
 const pad = n => String(n).padStart(2,'0');
@@ -750,6 +752,7 @@ async function saveBk() {
 
 // ── BOOKING MODAL: DETAIL ─────────────────────
 function openBkDetail(b) {
+  DETAIL_BK = b;
   const canDel=b.user_id===CU.id||CU.role==='admin';
   const canApprove=CU.role==='admin'&&b.status==='pending';
   const today=fmtDate(new Date());
@@ -772,8 +775,8 @@ function openBkDetail(b) {
     <div style="margin-bottom:12px"><span class="status-badge ${b.status==='pending'?'status-pending':'status-confirmed'}">${b.status==='pending'?'承認待ち':'確定'}</span>${b.use_hvac?'<span style="margin-left:8px;font-size:12px;background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:99px">冷暖房使用</span>':''}</div>
     <div class="modal-footer" style="flex-wrap:wrap">
       <button class="btn btn-secondary" onclick="closeModal()">閉じる</button>
-      <button class="btn btn-secondary btn-sm" onclick="printApplication(${JSON.stringify(b).replace(/"/g,'&quot;')})">🖨 申込書</button>
-      ${b.status==='confirmed'&&CU.role==='admin'?`<button class="btn btn-secondary btn-sm" onclick="printApproval(${JSON.stringify(b).replace(/"/g,'&quot;')})">🖨 承認書</button>`:''}
+      <button class="btn btn-secondary btn-sm" onclick="printApplication(DETAIL_BK)">🖨 申込書</button>
+      ${b.status==='confirmed'&&CU.role==='admin'?'<button class="btn btn-secondary btn-sm" onclick="printApproval(DETAIL_BK)">🖨 承認書</button>':''}
       ${canApprove?`<button class="btn btn-danger btn-sm" onclick="rejectBk('${b.id}')">却下</button><button class="btn btn-success btn-sm" onclick="approveBk('${b.id}')">承認</button>`:''}
       ${isPast&&canReport?`<button class="btn btn-primary btn-sm" onclick="openReportModal('${b.id}')">📝 利用報告</button><button class="btn btn-secondary btn-sm" onclick="openChecklistModal('${b.id}')">✅ 退室確認</button>`:''}
       ${canDel?`<button class="btn btn-danger btn-sm" onclick="deleteBk('${b.id}','${b.user_id}','${esc(b.user_name)}')">取消</button>`:''}
@@ -1174,7 +1177,7 @@ function printApproval(b) {
 
 // ── 利用報告書 ────────────────────────────────
 async function openReportModal(bkId) {
-  const bk=schedBks.find(b=>b.id===bkId);
+  const bk=REPORT_BKS[bkId]||schedBks.find(b=>b.id===bkId)||DETAIL_BK;
   if(!bk) return;
   document.getElementById('modal-ttl').textContent='利用報告書';
   document.getElementById('modal-body').innerHTML=`
@@ -1219,6 +1222,7 @@ async function saveReport(bkId) {
 
 // ── 退室チェックリスト ─────────────────────────
 function openChecklistModal(bkId) {
+  if(REPORT_BKS[bkId]) DETAIL_BK=REPORT_BKS[bkId];
   document.getElementById('modal-ttl').textContent='退室確認チェックリスト';
   const checklist=[
     {cat:'① 火の用心',items:['給湯器の確認','ガス台・IHコンロの確認','ガスの元栓の確認']},
@@ -1261,6 +1265,7 @@ async function renderReports() {
   try {
     const f=CU.role==='admin'?{}:{userId:CU.id};
     const bks=await getBookings(f);
+    bks.forEach(b=>{ REPORT_BKS[b.id]=b; });
     const today=fmtDate(new Date());
     const reported=bks.filter(b=>b.report_data);
     const pending=bks.filter(b=>b.status==='confirmed'&&b.date<today&&!b.report_data);
@@ -1276,8 +1281,8 @@ async function renderReports() {
           <div class="bk-card-sub">${esc(b.organization||b.user_name)}</div>
         </div>
         <div class="bk-actions">
-          <button class="btn btn-primary btn-sm" onclick="schedDate='${b.date}';schedBks=[${JSON.stringify(b).replace(/</g,'\\u003c')}];openReportModal('${b.id}')">報告する</button>
-          <button class="btn btn-secondary btn-sm" onclick="schedDate='${b.date}';schedBks=[${JSON.stringify(b).replace(/</g,'\\u003c')}];openChecklistModal('${b.id}')">退室確認</button>
+          <button class="btn btn-primary btn-sm" onclick="openReportModal('${b.id}')">報告する</button>
+          <button class="btn btn-secondary btn-sm" onclick="openChecklistModal('${b.id}')">退室確認</button>
         </div>
       </div>`).join('');
       html+='</div>';
@@ -1294,7 +1299,7 @@ async function renderReports() {
             <div class="bk-card-sub">${esc(r.org||b.organization||b.user_name)}</div>
           </div>
           <div class="bk-actions">
-            <button class="btn btn-secondary btn-sm" onclick="schedDate='${b.date}';schedBks=[${JSON.stringify(b).replace(/</g,'\\u003c')}];printReportForm('${b.id}')">🖨 印刷</button>
+            <button class="btn btn-secondary btn-sm" onclick="printReportForm('${b.id}')">🖨 印刷</button>
           </div>
         </div>`;
       }).join('');
@@ -1306,7 +1311,7 @@ async function renderReports() {
 }
 
 function printReportForm(bkId) {
-  const bk=schedBks.find(b=>b.id===bkId); if(!bk||!bk.report_data) return;
+  const bk=REPORT_BKS[bkId]||schedBks.find(b=>b.id===bkId); if(!bk||!bk.report_data) return;
   const r=bk.report_data;
   const w=window.open('','_blank','width=700,height=700');
   w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>利用報告書</title><style>
