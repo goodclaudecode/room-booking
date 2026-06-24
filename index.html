@@ -1177,8 +1177,9 @@ function printApproval(b) {
 
 // ── 利用報告書 ────────────────────────────────
 async function openReportModal(bkId) {
-  const bk=REPORT_BKS[bkId]||schedBks.find(b=>b.id===bkId)||DETAIL_BK;
-  if(!bk) return;
+  let bk=REPORT_BKS[bkId]||schedBks.find(b=>b.id===bkId)||(DETAIL_BK&&DETAIL_BK.id===bkId?DETAIL_BK:null);
+  if(!bk){ showLoading(); const {data}=await SUPA.from('bookings').select('*').eq('id',bkId).single(); hideLoading(); if(!data){toast('予約データが見つかりません','error');return;} bk=data; }
+  REPORT_BKS[bkId]=bk;
   document.getElementById('modal-ttl').textContent='利用報告書';
   document.getElementById('modal-body').innerHTML=`
     <div style="background:#ECFDF5;border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:#047857">
@@ -1221,7 +1222,9 @@ async function saveReport(bkId) {
 }
 
 // ── 退室チェックリスト ─────────────────────────
-function openChecklistModal(bkId) {
+async function openChecklistModal(bkId) {
+  let bk=REPORT_BKS[bkId]||schedBks.find(b=>b.id===bkId)||(DETAIL_BK&&DETAIL_BK.id===bkId?DETAIL_BK:null);
+  if(!bk){ showLoading(); const {data}=await SUPA.from('bookings').select('*').eq('id',bkId).single(); hideLoading(); if(data){bk=data;REPORT_BKS[bkId]=bk;} }
   if(REPORT_BKS[bkId]) DETAIL_BK=REPORT_BKS[bkId];
   document.getElementById('modal-ttl').textContent='退室確認チェックリスト';
   const checklist=[
