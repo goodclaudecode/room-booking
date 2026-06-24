@@ -1010,7 +1010,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if(session){
     await loadSettings();
     const {data:profile}=await SUPA.from('profiles').select('*').eq('id',session.user.id).single();
-    CU={id:session.user.id,email:session.user.email,name:profile?.name||session.user.email,role:profile?.role||'user'};
+    CU={id:session.user.id,email:session.user.email,name:profile?.name||session.user.email,role:profile?.role||'user',phone:profile?.phone||''};
     hideLoading(); startApp();
   } else {
     hideLoading();
